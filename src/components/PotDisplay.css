@@ -14,18 +14,27 @@
 }
 
 .side-pots {
-  display: inline-flex;
+  position: absolute;
+  transform: translate(-50%, -50%);
+  display: flex;
   gap: 8px;
-  margin-left: 12px;
-  padding-left: 12px;
-  border-left: 1px solid rgba(255, 255, 255, 0.2);
-  vertical-align: middle;
+  white-space: nowrap;
 }
 
 .side-pot {
   font-size: 18px;
-  color: #cfd6dc;
-  background: rgba(0, 0, 0, 0.35);
-  padding: 1px 10px;
-  border-radius: 10px;
+  line-height: 24px;
+  padding: 0 10px;
+  border-radius: 12px;
+  background: rgba(6, 40, 30, 0.7);
+}
+
+.side-pot-name {
+  color: #9fb3ad;
+  font-weight: 500;
+}
+
+.side-pot-amount {
+  color: #fff;
+  font-weight: 700;
 }

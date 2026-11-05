@@ -34,7 +34,7 @@ export const BET_POS: Point[] = [
   { x: 670, y: 628 },
   { x: 345, y: 595 },
   { x: 365, y: 285 },
-  { x: 670, y: 258 },
+  { x: 670, y: 245 },
   { x: 975, y: 285 },
   { x: 995, y: 595 },
 ];
@@ -49,10 +49,11 @@ export const DEALER_POS: Point[] = [
   { x: 1082, y: 528 },
 ];
 
-export const POT_LABEL_POS: Point = { x: 670, y: 322 };
-export const BOARD_POS: Point = { x: 670, y: 418 };
-export const COLLECTED_POT_POS: Point = { x: 670, y: 530 };
-export const RESULT_POS: Point = { x: 670, y: 600 };
+export const POT_LABEL_POS: Point = { x: 670, y: 300 };
+export const SIDE_POTS_POS: Point = { x: 670, y: 336 };
+export const BOARD_POS: Point = { x: 670, y: 434 };
+export const COLLECTED_POT_POS: Point = { x: 670, y: 552 };
+export const RESULT_POS: Point = { x: 670, y: 612 };
 
 export function at(p: Point): React.CSSProperties {
   return { left: p.x, top: p.y };
