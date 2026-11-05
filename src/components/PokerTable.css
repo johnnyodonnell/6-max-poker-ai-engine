@@ -1,0 +1,38 @@
+.table-rail {
+  position: absolute;
+  left: 68px;
+  top: 150px;
+  width: 1204px;
+  height: 684px;
+  border-radius: 50%;
+  background: linear-gradient(180deg, #2a303c 0%, #161a22 50%, #0c0e13 100%);
+  box-shadow:
+    0 30px 70px rgba(0, 0, 0, 0.7),
+    0 0 0 2px #2f3542,
+    inset 0 2px 0 rgba(255, 255, 255, 0.07);
+}
+
+.table-felt {
+  position: absolute;
+  inset: 38px;
+  border-radius: 50%;
+  background: radial-gradient(
+    ellipse at 50% 45%,
+    #1d9c6e 0%,
+    #168559 45%,
+    #0e6644 80%,
+    #0a5137 100%
+  );
+  box-shadow:
+    inset 0 0 0 3px #0a3d2b,
+    inset 0 10px 40px rgba(0, 0, 0, 0.45);
+}
+
+/* A faint inner line, like the printed ring on the CoinPoker felt. */
+.table-felt::after {
+  content: "";
+  position: absolute;
+  inset: 26px;
+  border-radius: 50%;
+  border: 2px solid rgba(255, 255, 255, 0.05);
+}

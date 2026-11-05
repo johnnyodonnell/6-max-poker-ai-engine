@@ -1,0 +1,89 @@
+.action-panel {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 12px;
+  padding: 16px 0;
+}
+
+.btn {
+  padding: 10px 24px;
+  border: none;
+  border-radius: 8px;
+  font-size: 16px;
+  font-weight: bold;
+  cursor: pointer;
+  transition: transform 0.1s, opacity 0.2s;
+}
+
+.btn:hover {
+  transform: scale(1.05);
+}
+
+.btn:active {
+  transform: scale(0.98);
+}
+
+.btn-fold {
+  background: #666;
+  color: white;
+}
+
+.btn-check {
+  background: #4caf50;
+  color: white;
+}
+
+.btn-call {
+  background: #2196f3;
+  color: white;
+}
+
+.btn-raise {
+  background: #e53935;
+  color: white;
+}
+
+.btn-deal {
+  background: #4caf50;
+  color: white;
+  font-size: 18px;
+  padding: 12px 36px;
+}
+
+.raise-controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.raise-slider {
+  width: 120px;
+  cursor: pointer;
+}
+
+@media (max-width: 600px) {
+  .action-panel {
+    gap: 8px;
+    padding: 10px 0;
+    flex-wrap: wrap;
+  }
+
+  .btn {
+    padding: 8px 14px;
+    font-size: 13px;
+  }
+
+  .btn-deal {
+    font-size: 15px;
+    padding: 10px 24px;
+  }
+
+  .raise-controls {
+    gap: 4px;
+  }
+
+  .raise-slider {
+    width: 80px;
+  }
+}

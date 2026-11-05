@@ -1,0 +1,29 @@
+.chip-stack {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+}
+
+.chip {
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  background: radial-gradient(circle, #e8283e 0 38%, #fff 38% 46%, #e8283e 46%);
+  border: 3px dashed #fff;
+  box-shadow:
+    0 0 0 2px #e8283e,
+    0 2px 4px rgba(0, 0, 0, 0.5);
+}
+
+.chip-amount {
+  padding: 0 14px;
+  border-radius: 16px;
+  background: rgba(6, 40, 30, 0.75);
+  font-size: 26px;
+  font-weight: 600;
+  line-height: 1.25;
+  white-space: nowrap;
+}

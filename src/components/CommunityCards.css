@@ -1,0 +1,8 @@
+/* Anchored on its first-card-left edge so the flop doesn't shift when the
+   turn and river arrive: five 92px cards + four 10px gaps = 500px. */
+.community-cards {
+  position: absolute;
+  display: flex;
+  gap: 10px;
+  transform: translate(-250px, -50%);
+}

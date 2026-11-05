@@ -1,0 +1,99 @@
+/* A seat is a zero-size anchor at the center of its name plate; everything
+   else is positioned around that point. */
+.seat {
+  position: absolute;
+  width: 0;
+  height: 0;
+}
+
+.seat-plate {
+  position: absolute;
+  left: -92px;
+  top: -38px;
+  width: 184px;
+  height: 76px;
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  border-radius: 14px;
+  background: linear-gradient(180deg, #2c313c 0%, #1a1d24 55%, #121419 100%);
+  border: 1px solid #424857;
+  box-shadow:
+    0 6px 16px rgba(0, 0, 0, 0.55),
+    inset 0 1px 0 rgba(255, 255, 255, 0.08);
+  transition: opacity 0.2s, box-shadow 0.2s;
+}
+
+.seat-name {
+  font-size: 22px;
+  font-weight: 600;
+  line-height: 1.1;
+  color: #f2f3f5;
+  padding-bottom: 3px;
+  width: 80%;
+  text-align: center;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.seat-stack {
+  font-size: 30px;
+  font-weight: 700;
+  line-height: 1.1;
+  color: #f7c23d;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.6);
+}
+
+/* Hole cards sit above the plate, tucked behind its top edge. */
+.seat-cards {
+  position: absolute;
+  z-index: 1;
+  left: 0;
+  transform: translateX(-50%);
+  display: flex;
+  gap: 2px;
+  top: -128px;
+}
+
+.seat.is-human .seat-cards {
+  top: -160px;
+  gap: 0;
+}
+
+.seat.is-human .seat-cards .card + .card {
+  margin-left: -6px;
+}
+
+.seat.folded .seat-plate {
+  opacity: 0.55;
+}
+
+.seat.folded .seat-stack {
+  color: #b8963a;
+}
+
+.seat.eliminated .seat-plate {
+  opacity: 0.3;
+}
+
+.seat.is-winner .seat-plate {
+  border-color: #f7c23d;
+  box-shadow:
+    0 0 24px rgba(247, 194, 61, 0.7),
+    inset 0 1px 0 rgba(255, 255, 255, 0.08);
+}
+
+/* The action bar under whoever is to act (static — no countdown). */
+.seat-timer {
+  position: absolute;
+  z-index: 2;
+  left: -70px;
+  top: 44px;
+  width: 140px;
+  height: 9px;
+  border-radius: 5px;
+  background: linear-gradient(90deg, #5ff2ff 0%, #b8fbff 100%);
+  box-shadow: 0 0 10px rgba(95, 242, 255, 0.8);
+  border: 1px solid #1d2a33;
+}

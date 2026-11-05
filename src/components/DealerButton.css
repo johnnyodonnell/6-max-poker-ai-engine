@@ -1,0 +1,19 @@
+.dealer-button {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: radial-gradient(circle at 50% 35%, #e33a4c, #a8102a);
+  border: 3px solid #f4f4f4;
+  box-shadow:
+    0 0 0 2px #a8102a,
+    0 3px 6px rgba(0, 0, 0, 0.5);
+  color: #fff;
+  font-size: 20px;
+  font-weight: 700;
+  transition: left 0.25s, top 0.25s;
+}
