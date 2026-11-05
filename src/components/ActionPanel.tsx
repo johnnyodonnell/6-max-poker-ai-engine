@@ -61,53 +61,58 @@ export default function ActionPanel({
 
   const canRaise = minRaiseAmount > 0 && maxRaiseAmount > 0;
   const showSlider = canRaise && minRaiseAmount < maxRaiseAmount;
+  // Nothing to call after the flop means this is an opening bet, not a raise.
+  const raiseVerb = canCheck && phase !== "preflop" ? "Bet" : "Raise to";
+  const allIn = raiseAmount >= maxRaiseAmount;
 
   return (
     <div className="action-panel">
-      {canCheck ? (
-        <button className="btn btn-check" onClick={() => onAction({ type: "check" })}>
-          Check
-        </button>
-      ) : (
-        <>
-          <button className="btn btn-fold" onClick={() => onAction({ type: "fold" })}>
-            Fold
-          </button>
-          <button className="btn btn-call" onClick={() => onAction({ type: "call" })}>
-            Call ${callAmount}
-          </button>
-        </>
-      )}
-
-      {canRaise && (
+      {showSlider && (
         <div className="raise-controls">
-          {showSlider ? (
-            <>
-              <input
-                type="range"
-                className="raise-slider"
-                min={minRaiseAmount}
-                max={maxRaiseAmount}
-                value={raiseAmount}
-                onChange={(e) => setRaiseAmount(Number(e.target.value))}
-              />
-              <button
-                className="btn btn-raise"
-                onClick={() => onAction({ type: "raise", amount: raiseAmount })}
-              >
-                Raise to ${raiseAmount}
-              </button>
-            </>
+          <input
+            type="range"
+            className="raise-slider"
+            min={minRaiseAmount}
+            max={maxRaiseAmount}
+            value={raiseAmount}
+            onChange={(e) => setRaiseAmount(Number(e.target.value))}
+          />
+          <span className="raise-amount">{raiseAmount.toLocaleString()}</span>
+        </div>
+      )}
+      <div className="action-buttons">
+        {canCheck ? (
+          <button className="btn btn-check" onClick={() => onAction({ type: "check" })}>
+            Check
+          </button>
+        ) : (
+          <>
+            <button className="btn btn-fold" onClick={() => onAction({ type: "fold" })}>
+              Fold
+            </button>
+            <button className="btn btn-call" onClick={() => onAction({ type: "call" })}>
+              Call {callAmount.toLocaleString()}
+            </button>
+          </>
+        )}
+
+        {canRaise &&
+          (showSlider ? (
+            <button
+              className="btn btn-raise"
+              onClick={() => onAction({ type: "raise", amount: raiseAmount })}
+            >
+              {allIn ? "All-In" : raiseVerb} {raiseAmount.toLocaleString()}
+            </button>
           ) : (
             <button
               className="btn btn-raise"
               onClick={() => onAction({ type: "raise", amount: maxRaiseAmount })}
             >
-              All-In ${maxRaiseAmount}
+              All-In {maxRaiseAmount.toLocaleString()}
             </button>
-          )}
-        </div>
-      )}
+          ))}
+      </div>
     </div>
   );
 }

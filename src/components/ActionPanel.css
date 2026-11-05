@@ -1,89 +1,86 @@
 .action-panel {
   display: flex;
-  justify-content: center;
-  align-items: center;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 10px;
+}
+
+.action-buttons {
+  display: flex;
   gap: 12px;
-  padding: 16px 0;
 }
 
 .btn {
-  padding: 10px 24px;
-  border: none;
+  min-width: 168px;
+  height: 64px;
+  padding: 0 22px;
   border-radius: 8px;
-  font-size: 16px;
-  font-weight: bold;
+  border: 1px solid #3c424e;
+  background: linear-gradient(180deg, #2b3039 0%, #1b1e25 100%);
+  box-shadow:
+    0 4px 12px rgba(0, 0, 0, 0.5),
+    inset 0 1px 0 rgba(255, 255, 255, 0.07);
+  color: #f2f3f5;
+  font-family: inherit;
+  font-size: 26px;
+  font-weight: 600;
+  white-space: nowrap;
   cursor: pointer;
-  transition: transform 0.1s, opacity 0.2s;
+  transition: background 0.15s, border-color 0.15s, transform 0.08s;
 }
 
 .btn:hover {
-  transform: scale(1.05);
+  background: linear-gradient(180deg, #353b46 0%, #23272f 100%);
 }
 
 .btn:active {
-  transform: scale(0.98);
+  transform: translateY(1px);
 }
 
+/* A colored underline per action, so they're distinguishable at a glance. */
 .btn-fold {
-  background: #666;
-  color: white;
+  border-bottom: 3px solid #8a909c;
 }
 
-.btn-check {
-  background: #4caf50;
-  color: white;
-}
-
+.btn-check,
 .btn-call {
-  background: #2196f3;
-  color: white;
+  border-bottom: 3px solid #17a673;
 }
 
 .btn-raise {
-  background: #e53935;
-  color: white;
+  border-bottom: 3px solid #e3a21a;
 }
 
 .btn-deal {
-  background: #4caf50;
-  color: white;
-  font-size: 18px;
-  padding: 12px 36px;
+  min-width: 240px;
+  border-color: #17a673;
+  background: linear-gradient(180deg, #1aa676 0%, #0f7a55 100%);
+}
+
+.btn-deal:hover {
+  background: linear-gradient(180deg, #1fb883 0%, #128a60 100%);
 }
 
 .raise-controls {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 14px;
+  padding: 8px 16px;
+  border-radius: 8px;
+  background: rgba(15, 18, 24, 0.85);
+  border: 1px solid #2f3540;
 }
 
 .raise-slider {
-  width: 120px;
+  width: 300px;
   cursor: pointer;
+  accent-color: #e3a21a;
 }
 
-@media (max-width: 600px) {
-  .action-panel {
-    gap: 8px;
-    padding: 10px 0;
-    flex-wrap: wrap;
-  }
-
-  .btn {
-    padding: 8px 14px;
-    font-size: 13px;
-  }
-
-  .btn-deal {
-    font-size: 15px;
-    padding: 10px 24px;
-  }
-
-  .raise-controls {
-    gap: 4px;
-  }
-
-  .raise-slider {
-    width: 80px;
-  }
+.raise-amount {
+  min-width: 56px;
+  text-align: right;
+  font-size: 24px;
+  font-weight: 600;
+  color: #f7c23d;
 }
