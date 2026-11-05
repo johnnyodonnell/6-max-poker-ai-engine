@@ -62,7 +62,7 @@ src/
     layout.ts           stage size and every seat/bet/dealer/pot position
     GameTable           scaled stage; composes everything below
     PokerTable          rail + felt
-    PlayerSeat          plate, hole cards, action label, acting bar
+    PlayerSeat          plate, hole cards, action label
     Card, CommunityCards, PotDisplay, ChipStack, DealerButton,
     HandResult, ActionPanel
 ```

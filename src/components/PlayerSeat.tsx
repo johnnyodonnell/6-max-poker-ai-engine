@@ -89,7 +89,6 @@ export default function PlayerSeat({
         <div className="seat-stack">{player.chips.toLocaleString()}</div>
       </div>
       {label && <div className={`seat-label label-${label.kind}`}>{label.text}</div>}
-      {isActing && <div className="seat-timer" />}
     </div>
   );
 }

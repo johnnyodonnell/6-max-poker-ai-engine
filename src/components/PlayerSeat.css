@@ -84,20 +84,6 @@
     inset 0 1px 0 rgba(255, 255, 255, 0.08);
 }
 
-/* The action bar under whoever is to act (static — no countdown). */
-.seat-timer {
-  position: absolute;
-  z-index: 2;
-  left: -70px;
-  top: 44px;
-  width: 140px;
-  height: 9px;
-  border-radius: 5px;
-  background: linear-gradient(90deg, #5ff2ff 0%, #b8fbff 100%);
-  box-shadow: 0 0 10px rgba(95, 242, 255, 0.8);
-  border: 1px solid #1d2a33;
-}
-
 /* Action / blind tab, sitting on the plate's top-left edge over the cards. */
 .seat-label {
   position: absolute;
