@@ -19,13 +19,13 @@ export default function PotDisplay({ pots, collected, liveTotal }: PotDisplayPro
       <div className="pot-label" style={at(POT_LABEL_POS)}>
         <span className="pot-word">Pot</span> {liveTotal.toLocaleString()}
         {pots.length > 1 && (
-          <div className="side-pots">
+          <span className="side-pots">
             {pots.map((pot, i) => (
               <span key={i} className="side-pot">
                 {i === 0 ? "Main" : `Side ${i}`} {pot.amount.toLocaleString()}
               </span>
             ))}
-          </div>
+          </span>
         )}
       </div>
       {collected > 0 && <ChipStack amount={collected} pos={COLLECTED_POT_POS} />}
