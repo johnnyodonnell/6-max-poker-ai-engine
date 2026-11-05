@@ -63,11 +63,6 @@ export default function GameTable({
           transform: `scale(${scale})`,
         }}
       >
-        <div className="table-info">
-          NLH · Blinds 1/2
-          {gameState.handNumber > 0 && ` · Hand #${gameState.handNumber}`}
-        </div>
-
         <PokerTable>
           <PotDisplay
             pots={gameState.pots}
