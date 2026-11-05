@@ -31,7 +31,7 @@ export const SEAT_POS: Point[] = [
 
 // Where each seat's current-street bet sits on the felt.
 export const BET_POS: Point[] = [
-  { x: 670, y: 722 },
+  { x: 670, y: 688 },
   { x: 345, y: 655 },
   { x: 365, y: 345 },
   { x: 670, y: 318 },

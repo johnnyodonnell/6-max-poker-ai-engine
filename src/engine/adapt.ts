@@ -43,7 +43,9 @@ function mapCard(c: Card): UICard {
 }
 
 export function toGameState(s: EngineState): GameState {
-  const showdown = s.phase === "hand-over" && !!s.results?.reveal;
+  // A hand that ends the match (phase 'match-over') can still be a showdown.
+  const showdown =
+    (s.phase === "hand-over" || s.phase === "match-over") && !!s.results?.reveal;
 
   const players: Player[] = s.players.map((p: EnginePlayer) => {
     const inHand = p.status === "active" || p.status === "allin";

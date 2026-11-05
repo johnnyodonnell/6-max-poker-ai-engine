@@ -97,3 +97,62 @@
   box-shadow: 0 0 10px rgba(95, 242, 255, 0.8);
   border: 1px solid #1d2a33;
 }
+
+/* Action / blind tab, sitting on the plate's top-left edge over the cards. */
+.seat-label {
+  position: absolute;
+  z-index: 3;
+  left: -84px;
+  top: -66px;
+  padding: 0 10px;
+  height: 28px;
+  line-height: 28px;
+  border-radius: 6px 6px 0 0;
+  font-size: 19px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+  color: #fff;
+  box-shadow: 0 -2px 6px rgba(0, 0, 0, 0.35);
+}
+
+.seat.is-human .seat-label {
+  left: -84px;
+}
+
+.label-passive {
+  background: linear-gradient(180deg, #19a777, #0f805a);
+}
+
+.label-aggressive {
+  background: linear-gradient(180deg, #e7a321, #b87a0c);
+}
+
+.label-allin {
+  background: linear-gradient(180deg, #e2384d, #a8172c);
+}
+
+.label-muted {
+  background: #2c313a;
+  color: #8c929d;
+}
+
+.label-blind {
+  top: -62px;
+  height: 26px;
+  line-height: 26px;
+  padding: 0 7px;
+  border-radius: 5px;
+  background: linear-gradient(180deg, #2a86f0, #155fc0);
+}
+
+.seat-hand-strength {
+  position: absolute;
+  left: 0;
+  top: 58px;
+  transform: translateX(-50%);
+  font-size: 22px;
+  font-weight: 600;
+  color: #e6e8ec;
+  white-space: nowrap;
+}

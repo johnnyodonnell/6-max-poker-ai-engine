@@ -7,6 +7,7 @@ import PotDisplay from "./PotDisplay";
 import ChipStack from "./ChipStack";
 import DealerButton from "./DealerButton";
 import ActionPanel from "./ActionPanel";
+import HandResult from "./HandResult";
 import { STAGE_WIDTH, STAGE_HEIGHT, BET_POS } from "./layout";
 import "./GameTable.css";
 
@@ -93,8 +94,16 @@ export default function GameTable({
               isActing={gameState.actionOnSeat === p.seat}
               showdown={gameState.showdown}
               faceUp={faceUp}
+              handStrength={p.isHuman ? gameState.humanHandDescription : null}
             />
           ))}
+          {handOver && (
+            <HandResult
+              winners={gameState.winners}
+              players={gameState.players}
+              gameOverMessage={gameState.gameOverMessage}
+            />
+          )}
         </PokerTable>
 
         <div className="action-dock">
