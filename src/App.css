@@ -1,0 +1,13 @@
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+body {
+  background: #0b1220;
+  color: white;
+  font-family: "Barlow Semi Condensed", "Arial Narrow", system-ui, sans-serif;
+  min-height: 100vh;
+  overflow: hidden;
+}
