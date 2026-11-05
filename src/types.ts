@@ -74,8 +74,6 @@ export interface GameState {
   maxRaiseAmount: number;
   canCheck: boolean;
   callAmount: number;
-  // The human's current best hand ("One Pair"), while they're in the hand.
-  humanHandDescription: string | null;
   // Set once the match is over: who won, or that the human busted.
   gameOverMessage: string | null;
 }

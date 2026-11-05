@@ -89,7 +89,6 @@ export default function GameTable({
               isActing={gameState.actionOnSeat === p.seat}
               showdown={gameState.showdown}
               faceUp={faceUp}
-              handStrength={p.isHuman ? gameState.humanHandDescription : null}
             />
           ))}
           {handOver && (

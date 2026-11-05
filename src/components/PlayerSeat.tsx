@@ -36,7 +36,6 @@ interface PlayerSeatProps {
   isActing: boolean;
   showdown: boolean;
   faceUp?: boolean;
-  handStrength?: string | null;
 }
 
 export default function PlayerSeat({
@@ -47,7 +46,6 @@ export default function PlayerSeat({
   isActing,
   showdown,
   faceUp,
-  handStrength,
 }: PlayerSeatProps) {
   const folded = player.status === "folded";
   const out = player.status === "eliminated";
@@ -92,7 +90,6 @@ export default function PlayerSeat({
       </div>
       {label && <div className={`seat-label label-${label.kind}`}>{label.text}</div>}
       {isActing && <div className="seat-timer" />}
-      {handStrength && <div className="seat-hand-strength">{handStrength}</div>}
     </div>
   );
 }

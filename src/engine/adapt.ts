@@ -118,16 +118,8 @@ export function toGameState(s: EngineState): GameState {
     callAmount: legal?.toCall ?? 0,
     minRaiseAmount: canRaise ? legal!.minRaiseTo : 0,
     maxRaiseAmount: canRaise ? legal!.maxRaiseTo : 0,
-    humanHandDescription: humanHand(s),
     gameOverMessage: gameOverMessage(s),
   };
-}
-
-function humanHand(s: EngineState): string | null {
-  const me = s.players.find((p) => p.isHuman);
-  if (!me || me.holeCards.length === 0) return null;
-  if (me.status !== "active" && me.status !== "allin") return null;
-  return categoryName(evaluate7([...me.holeCards, ...s.community]));
 }
 
 function gameOverMessage(s: EngineState): string | null {
