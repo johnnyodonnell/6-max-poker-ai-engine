@@ -55,8 +55,10 @@ export default function PlayerSeat({
   // else folded is not a showdown, so the winner keeps their cards concealed.
   const revealAll = showdown || phase === "showdown" ? !folded && !out : false;
   const showCards = faceUp ? !out : revealAll || player.isHuman;
-  // Like CoinPoker, a folded hand leaves the table.
+  // Like CoinPoker, a folded hand leaves the table...
   const hasCards = player.holeCards.length > 0 && !folded && !out;
+  // ...but you can still peek at your own folded cards by hovering the seat.
+  const canPeek = player.holeCards.length > 0 && folded && showCards;
 
   const classNames = [
     "seat",
@@ -73,8 +75,8 @@ export default function PlayerSeat({
 
   return (
     <div className={classNames} style={at(SEAT_POS[position])}>
-      {hasCards && (
-        <div className="seat-cards">
+      {(hasCards || canPeek) && (
+        <div className={canPeek ? "seat-cards folded-peek" : "seat-cards"}>
           {player.holeCards.map((card, i) => (
             <Card
               key={i}

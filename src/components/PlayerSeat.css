@@ -65,6 +65,18 @@
   margin-left: -6px;
 }
 
+/* Folded hole cards stay hidden until you hover the seat (or the spot where
+   the cards were), then reappear dimmed under the FOLD tab. */
+.seat-cards.folded-peek {
+  opacity: 0;
+  filter: grayscale(0.35) brightness(0.6);
+  transition: opacity 0.15s;
+}
+
+.seat:hover .seat-cards.folded-peek {
+  opacity: 1;
+}
+
 .seat.folded .seat-plate {
   opacity: 0.55;
 }
