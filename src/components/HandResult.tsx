@@ -1,3 +1,4 @@
+import { dollars } from "../money";
 import type { Winner, Player } from "../types";
 import { RESULT_POS, at } from "./layout";
 import "./HandResult.css";
@@ -22,7 +23,7 @@ export default function HandResult({ winners, players, gameOverMessage }: HandRe
             : `with ${w.handDescription}`;
         return (
           <div key={i} className="winner-line">
-            {player.name} {verb} {w.amountWon.toLocaleString()} {desc}
+            {player.name} {verb} {dollars(w.amountWon)} {desc}
           </div>
         );
       })}

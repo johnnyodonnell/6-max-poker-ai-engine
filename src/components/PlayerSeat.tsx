@@ -1,3 +1,4 @@
+import { dollars } from "../money";
 import type { Player as PlayerType, Phase } from "../types";
 import Card from "./Card";
 import { SEAT_POS, at } from "./layout";
@@ -86,7 +87,7 @@ export default function PlayerSeat({
       )}
       <div className="seat-plate">
         <div className="seat-name">{player.name}</div>
-        <div className="seat-stack">{player.chips.toLocaleString()}</div>
+        <div className="seat-stack">{dollars(player.chips)}</div>
       </div>
       {label && <div className={`seat-label label-${label.kind}`}>{label.text}</div>}
     </div>

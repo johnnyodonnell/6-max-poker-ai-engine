@@ -1,3 +1,4 @@
+import { dollars } from "../money";
 import type { SidePot } from "../types";
 import ChipStack from "./ChipStack";
 import { POT_LABEL_POS, SIDE_POTS_POS, COLLECTED_POT_POS, at } from "./layout";
@@ -22,14 +23,14 @@ export default function PotDisplay({ pots, collected, liveTotal }: PotDisplayPro
   return (
     <>
       <div className="pot-label" style={at(POT_LABEL_POS)}>
-        <span className="pot-word">Pot</span> {liveTotal.toLocaleString()}
+        <span className="pot-word">Pot</span> {dollars(liveTotal)}
       </div>
       {pots.length > 1 && (
         <div className="side-pots" style={at(SIDE_POTS_POS)}>
           {pots.map((pot, i) => (
             <span key={i} className="side-pot">
               <span className="side-pot-name">{potName(i)}:</span>{" "}
-              <span className="side-pot-amount">{pot.amount.toLocaleString()}</span>
+              <span className="side-pot-amount">{dollars(pot.amount)}</span>
             </span>
           ))}
         </div>

@@ -1,3 +1,4 @@
+import { dollars } from "../money";
 import { useState, useEffect } from "react";
 import type { Phase, BetAction } from "../types";
 import "./ActionPanel.css";
@@ -77,7 +78,7 @@ export default function ActionPanel({
             value={raiseAmount}
             onChange={(e) => setRaiseAmount(Number(e.target.value))}
           />
-          <span className="raise-amount">{raiseAmount.toLocaleString()}</span>
+          <span className="raise-amount">{dollars(raiseAmount)}</span>
         </div>
       )}
       <div className="action-buttons">
@@ -91,7 +92,7 @@ export default function ActionPanel({
               Fold
             </button>
             <button className="btn btn-call" onClick={() => onAction({ type: "call" })}>
-              Call {callAmount.toLocaleString()}
+              Call {dollars(callAmount)}
             </button>
           </>
         )}
@@ -102,14 +103,14 @@ export default function ActionPanel({
               className="btn btn-raise"
               onClick={() => onAction({ type: "raise", amount: raiseAmount })}
             >
-              {allIn ? "All-In" : raiseVerb} {raiseAmount.toLocaleString()}
+              {allIn ? "All-In" : raiseVerb} {dollars(raiseAmount)}
             </button>
           ) : (
             <button
               className="btn btn-raise"
               onClick={() => onAction({ type: "raise", amount: maxRaiseAmount })}
             >
-              All-In {maxRaiseAmount.toLocaleString()}
+              All-In {dollars(maxRaiseAmount)}
             </button>
           ))}
       </div>
