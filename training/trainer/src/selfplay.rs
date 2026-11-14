@@ -108,39 +108,7 @@ impl Slot {
     /// Sample from the policy outputs, record the decision, apply it.
     fn act(&mut self, x: &[f32], logits: &[f32], size: &[f32]) {
         let sp = self.sp.take().expect("pending decision");
-        // Masked softmax over the action types (f64 for a clean log-prob).
-        let mut lp = [f64::NEG_INFINITY; NUM_TYPES];
-        let mx = (0..NUM_TYPES).filter(|&t| sp.mask[t] > 0.0).map(|t| logits[t] as f64).fold(f64::NEG_INFINITY, f64::max);
-        let mut z = 0.0;
-        for t in 0..NUM_TYPES {
-            if sp.mask[t] > 0.0 {
-                z += (logits[t] as f64 - mx).exp();
-            }
-        }
-        for t in 0..NUM_TYPES {
-            if sp.mask[t] > 0.0 {
-                lp[t] = logits[t] as f64 - mx - z.ln();
-            }
-        }
-        let r: f64 = self.rng.gen();
-        let mut acc = 0.0;
-        let mut ty = (0..NUM_TYPES).rev().find(|&t| sp.mask[t] > 0.0).unwrap();
-        for t in 0..NUM_TYPES {
-            if sp.mask[t] > 0.0 {
-                acc += lp[t].exp();
-                if r < acc {
-                    ty = t;
-                    break;
-                }
-            }
-        }
-        let mut logp = lp[ty];
-        let mut s = sp.s_lo;
-        if ty == RAISE && sp.s_hi > sp.s_lo {
-            let (mu, sigma) = (size[0] as f64, size[1] as f64);
-            s = sample_trunc_normal(mu, sigma, sp.s_lo, sp.s_hi, &mut self.rng);
-            logp += trunc_normal_logpdf(s, mu, sigma, sp.s_lo, sp.s_hi);
-        }
+        let (ty, s, logp) = sample_policy(&sp, logits, size, &mut self.rng);
         self.hud.record_decision(ty, s);
         let seat = self.st.to_act as usize;
         self.pending.push((
@@ -158,6 +126,45 @@ impl Slot {
         ));
         self.st.apply(to_action(&sp, ty, s));
     }
+}
+
+/// Sample (action type, raise size) from the policy outputs for one decision
+/// — temperature 1: masked softmax over the types, then a truncated normal
+/// for a raise's size. Returns (type, s, log-prob of the sampled action).
+pub fn sample_policy(sp: &ActionSpace, logits: &[f32], size: &[f32], rng: &mut impl Rng) -> (usize, f64, f64) {
+    let mut lp = [f64::NEG_INFINITY; NUM_TYPES];
+    let mx = (0..NUM_TYPES).filter(|&t| sp.mask[t] > 0.0).map(|t| logits[t] as f64).fold(f64::NEG_INFINITY, f64::max);
+    let mut z = 0.0;
+    for t in 0..NUM_TYPES {
+        if sp.mask[t] > 0.0 {
+            z += (logits[t] as f64 - mx).exp();
+        }
+    }
+    for t in 0..NUM_TYPES {
+        if sp.mask[t] > 0.0 {
+            lp[t] = logits[t] as f64 - mx - z.ln();
+        }
+    }
+    let r: f64 = rng.gen();
+    let mut acc = 0.0;
+    let mut ty = (0..NUM_TYPES).rev().find(|&t| sp.mask[t] > 0.0).unwrap();
+    for t in 0..NUM_TYPES {
+        if sp.mask[t] > 0.0 {
+            acc += lp[t].exp();
+            if r < acc {
+                ty = t;
+                break;
+            }
+        }
+    }
+    let mut logp = lp[ty];
+    let mut s = sp.s_lo;
+    if ty == RAISE && sp.s_hi > sp.s_lo {
+        let (mu, sigma) = (size[0] as f64, size[1] as f64);
+        s = sample_trunc_normal(mu, sigma, sp.s_lo, sp.s_hi, rng);
+        logp += trunc_normal_logpdf(s, mu, sigma, sp.s_lo, sp.s_hi);
+    }
+    (ty, s, logp)
 }
 
 pub struct Cohort {

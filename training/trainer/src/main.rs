@@ -7,6 +7,7 @@
 //!                                   write the browser ONNX (+ a parity fixture:
 //!                                   real encoded positions and tch's outputs)
 //!   train --run-dir DIR [...]       the self-play REINFORCE daemon (see run.rs)
+//!   eval / match                    bb/100 evaluation and the pool ladder (eval.rs)
 
 mod eval;
 mod hud;
@@ -112,8 +113,10 @@ fn main() {
         Some("gpu-check") => std::process::exit(if gpu_check() { 0 } else { 1 }),
         Some("export") => export(&args),
         Some("train") => run::train(&args),
+        Some("eval") => eval::eval_cmd(&args),
+        Some("match") => eval::match_cmd(&args),
         other => {
-            eprintln!("unknown subcommand {other:?}; expected: gpu-check | export | train");
+            eprintln!("unknown subcommand {other:?}; expected: gpu-check | export | train | eval | match");
             std::process::exit(2);
         }
     }
