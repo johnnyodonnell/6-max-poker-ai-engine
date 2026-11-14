@@ -219,8 +219,20 @@ fn refit(pool: &mut Value) {
     }
 }
 
-/// Evaluate a new snapshot against the pool and update pool.json.
-pub fn evaluate(run_dir: &str, candidate: &Path, deals: usize, n_top: usize, n_anchors: usize, seed: u64, dev: Device) {
+/// Evaluate a new snapshot against the pool and update pool.json. `prev`
+/// (the previous snapshot's name) is always among the opponents; returns the
+/// candidate's (bb/100, 95% CI) against it.
+#[allow(clippy::too_many_arguments)]
+pub fn evaluate(
+    run_dir: &str,
+    candidate: &Path,
+    prev: Option<&str>,
+    deals: usize,
+    n_top: usize,
+    n_anchors: usize,
+    seed: u64,
+    dev: Device,
+) -> Option<(f64, f64)> {
     let pool_path = Path::new(run_dir).join("pool.json");
     let mut pool = load_pool(&pool_path);
     let name = candidate.file_stem().unwrap().to_string_lossy().into_owned();
@@ -235,7 +247,14 @@ pub fn evaluate(run_dir: &str, candidate: &Path, deals: usize, n_top: usize, n_a
         .collect();
     rated.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap());
     let mut opps: Vec<String> = vec![RANDOM.to_string()];
-    opps.extend(rated.iter().take(n_top).map(|r| r.0.clone()));
+    if let Some(p) = prev.filter(|p| pool["models"].get(*p).is_some()) {
+        opps.push(p.to_string());
+    }
+    for r in rated.iter().take(n_top) {
+        if !opps.contains(&r.0) {
+            opps.push(r.0.clone());
+        }
+    }
     if let Some(top) = rated.first().map(|r| r.1) {
         for k in 1..=n_anchors {
             let target = top * k as f64 / (n_anchors + 1) as f64;
@@ -249,6 +268,7 @@ pub fn evaluate(run_dir: &str, candidate: &Path, deals: usize, n_top: usize, n_a
         }
     }
 
+    let mut vs_prev = None;
     let cand = load_agent(&candidate.to_string_lossy(), dev);
     pool["models"][&name] = json!({"rating": 0.0, "path": candidate.to_string_lossy()});
     for o in &opps {
@@ -256,6 +276,9 @@ pub fn evaluate(run_dir: &str, candidate: &Path, deals: usize, n_top: usize, n_a
         let opp = load_agent(&spec, dev);
         let (bb, ci) = play_match(&cand, &opp, deals, seed, dev);
         println!("[eval] {name} vs {o}: {bb:+.1} ± {ci:.1} bb/100 ({} hands)", deals * SEATS);
+        if Some(o.as_str()) == prev {
+            vs_prev = Some((bb, ci));
+        }
         pool["results"].as_array_mut().unwrap().push(json!({
             "a": name, "b": o, "bb100": (bb * 10.0).round() / 10.0, "ci": (ci * 10.0).round() / 10.0, "deals": deals,
         }));
@@ -271,6 +294,7 @@ pub fn evaluate(run_dir: &str, candidate: &Path, deals: usize, n_top: usize, n_a
     let top: Vec<String> = ladder.iter().take(5).map(|(k, r)| format!("{k}={r:+.1}")).collect();
     println!("[eval] ladder: {}", top.join("  "));
     std::fs::write(&pool_path, serde_json::to_string_pretty(&pool).unwrap()).expect("write pool.json");
+    vs_prev
 }
 
 fn usize_flag(args: &[String], key: &str, default: usize) -> usize {
@@ -281,21 +305,23 @@ fn device() -> Device {
     if tch::Cuda::is_available() { Device::Cuda(0) } else { Device::Cpu }
 }
 
-/// Called by the training daemon after each snapshot.
-pub fn after_snapshot(run_dir: &str, snapshot: &Path, args: &[String]) {
+/// Called by the training daemon after each snapshot; returns the result
+/// against the previous snapshot (see `evaluate`).
+pub fn after_snapshot(run_dir: &str, snapshot: &Path, prev: Option<&str>, args: &[String]) -> Option<(f64, f64)> {
     if has_flag(args, "--no-eval") {
-        return;
+        return None;
     }
     let seed = snapshot.to_string_lossy().bytes().fold(7u64, |h, b| h.wrapping_mul(31).wrapping_add(b as u64));
     evaluate(
         run_dir,
         snapshot,
+        prev,
         usize_flag(args, "--eval-deals", 2000),
         usize_flag(args, "--n-top", 2),
         usize_flag(args, "--n-anchors", 3),
         seed,
         device(),
-    );
+    )
 }
 
 /// `poker eval`
@@ -305,6 +331,7 @@ pub fn eval_cmd(args: &[String]) {
     evaluate(
         &run_dir,
         Path::new(&cand),
+        None,
         usize_flag(args, "--deals", 2000),
         usize_flag(args, "--n-top", 2),
         usize_flag(args, "--n-anchors", 3),

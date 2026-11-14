@@ -79,7 +79,13 @@ update. That works out to roughly 4M hands per hour.
 
 ## Evaluate and promote
 
-Every snapshot (every 30 minutes) is evaluated automatically and recorded in
+Snapshots start every 30 minutes. An improvement counts as significant when a
+snapshot beats the previous one head to head by more than its 95% CI. After
+two significant improvements in a row, the interval steps up to 1 hour, then
+after two more to 4 hours. The schedule state is kept in `latest.json`.
+`--snapshot-every` fixes the interval instead.
+
+Each snapshot is evaluated automatically and recorded in
 `runs/<run>/pool.json`. A match puts the candidate in one seat against five
 copies of the random bot or of an earlier snapshot. Each deal is replayed with
 the candidate in all six seats, with all-in EV applied. Ratings are
