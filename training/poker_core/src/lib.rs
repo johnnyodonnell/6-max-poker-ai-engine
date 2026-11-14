@@ -4,8 +4,10 @@
 //! the source of truth); parity is checked against traces dumped from the TS
 //! engine (`training/scripts/dump_fixtures.ts`).
 
+pub mod actions;
 pub mod allin_ev;
 pub mod cards;
+pub mod encode;
 pub mod hand_eval;
 pub mod rules;
 pub mod table;
