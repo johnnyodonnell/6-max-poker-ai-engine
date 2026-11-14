@@ -6,9 +6,15 @@
 //!          [--fixture fx.json] [--n 256]
 //!                                   write the browser ONNX (+ a parity fixture:
 //!                                   real encoded positions and tch's outputs)
+//!   train --run-dir DIR [...]       the self-play REINFORCE daemon (see run.rs)
 
+mod eval;
+mod hud;
 mod net;
 mod onnx;
+mod run;
+mod selfplay;
+mod train;
 mod util;
 
 use tch::nn::{self, Module, OptimizerConfig};
@@ -105,8 +111,9 @@ fn main() {
     match args.get(1).map(String::as_str) {
         Some("gpu-check") => std::process::exit(if gpu_check() { 0 } else { 1 }),
         Some("export") => export(&args),
+        Some("train") => run::train(&args),
         other => {
-            eprintln!("unknown subcommand {other:?}; expected: gpu-check | export");
+            eprintln!("unknown subcommand {other:?}; expected: gpu-check | export | train");
             std::process::exit(2);
         }
     }
