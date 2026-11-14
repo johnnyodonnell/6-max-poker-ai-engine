@@ -17,6 +17,8 @@ scripts/           TS run with tsx: fixture dumper, rule checks, ONNX parity,
                    browser-engine e2e
 sync_to_box.sh     rsync this working tree to the box
 run_daemon.sh      start/resume training on the box
+promote.sh         export the top-rated snapshot to public/models/current.onnx
+                   and verify it (ONNX parity + browser-engine e2e)
 ```
 
 ## The model
@@ -74,6 +76,21 @@ log-probs, which is the on-policy sanity check.
 Throughput on the GB10 (default cohort of 131k decisions, 4,096 hands in flight)
 is about 11 s per cohort: ~3 s of self-play (~4,000 hands/s) and ~8 s for the
 update. That works out to roughly 4M hands per hour.
+
+## Evaluate and promote
+
+Every snapshot (every 30 minutes) is evaluated automatically and recorded in
+`runs/<run>/pool.json`. A match puts the candidate in one seat against five
+copies of the random bot or of an earlier snapshot. Each deal is replayed with
+the candidate in all six seats, with all-in EV applied. Ratings are
+least-squares fits of bb/100, with random pinned at 0.
+
+```sh
+poker match --a <snap>.safetensors --b random --deals 2000   # ad hoc, on the box
+poker best --run-dir <run>                                   # top-rated snapshot
+training/promote.sh            # here: export best -> public/models/current.onnx,
+                               # parity + e2e checks; then commit the model
+```
 
 ## Parity gates
 

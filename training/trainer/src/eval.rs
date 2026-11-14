@@ -322,3 +322,22 @@ pub fn match_cmd(args: &[String]) {
     let (bb, ci) = play_match(&load_agent(&a, dev), &load_agent(&b, dev), deals, usize_flag(args, "--seed", 1) as u64, dev);
     println!("{a} vs 5x {b}: {bb:+.1} ± {ci:.1} bb/100 ({} hands)", deals * SEATS);
 }
+
+/// `poker best --run-dir DIR`: print the path of the top-rated snapshot.
+pub fn best_cmd(args: &[String]) {
+    let run_dir = flag(args, "--run-dir").expect("--run-dir");
+    let pool = load_pool(&Path::new(&run_dir).join("pool.json"));
+    let best = pool["models"]
+        .as_object()
+        .unwrap()
+        .iter()
+        .filter(|(k, _)| k.as_str() != RANDOM)
+        .max_by(|a, b| a.1["rating"].as_f64().partial_cmp(&b.1["rating"].as_f64()).unwrap());
+    match best {
+        Some((_, v)) => println!("{}", v["path"].as_str().unwrap()),
+        None => {
+            eprintln!("no rated snapshots in {run_dir}/pool.json yet");
+            std::process::exit(1);
+        }
+    }
+}

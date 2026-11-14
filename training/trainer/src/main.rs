@@ -115,8 +115,9 @@ fn main() {
         Some("train") => run::train(&args),
         Some("eval") => eval::eval_cmd(&args),
         Some("match") => eval::match_cmd(&args),
+        Some("best") => eval::best_cmd(&args),
         other => {
-            eprintln!("unknown subcommand {other:?}; expected: gpu-check | export | train | eval | match");
+            eprintln!("unknown subcommand {other:?}; expected: gpu-check | export | train | eval | match | best");
             std::process::exit(2);
         }
     }

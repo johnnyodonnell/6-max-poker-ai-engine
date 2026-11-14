@@ -1,4 +1,4 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect, useRef } from "react";
 import type { BetAction, GameState } from "../types";
 import {
   createTable,
@@ -7,14 +7,14 @@ import {
   advanceStreet,
 } from "../engine/game";
 import type { EngineState } from "../engine/game";
-import { bestMove } from "../engine/random";
+import { bestMove, preload } from "../engine/neural";
 import { toGameState, fromBetAction } from "../engine/adapt";
 
 // Run the engine forward until a human decision is required or the hand/match
-// ends. Instant pacing: bots and street run-outs resolve with no delay (the
-// reference relied on network latency, which we don't have). Bounded by a
-// generous step cap purely as a runaway-loop backstop.
-function advance(state: EngineState): EngineState {
+// ends. The bots' moves are async (one ONNX forward each, a few ms), but there
+// is no artificial pacing: the table updates once, when the run-out is done.
+// Bounded by a generous step cap purely as a runaway-loop backstop.
+async function advance(state: EngineState): Promise<EngineState> {
   let s = state;
   for (let step = 0; step < 10000; step++) {
     if (s.phase === "street-complete") {
@@ -24,7 +24,7 @@ function advance(state: EngineState): EngineState {
     if (s.phase === "betting") {
       const actor = s.players[s.toAct];
       if (actor && !actor.isHuman) {
-        s = applyAction(s, bestMove(s));
+        s = applyAction(s, await bestMove(s));
         continue;
       }
     }
@@ -42,25 +42,55 @@ export function useGameState(): {
   isProcessingBots: boolean;
 } {
   const [engine, setEngine] = useState<EngineState>(() => createTable());
+  const [busy, setBusy] = useState(false);
+  const engineRef = useRef(engine);
+  // Bumped by every new run (and New Game): a bot run that finishes after
+  // it has been superseded is discarded.
+  const generation = useRef(0);
+
+  useEffect(() => {
+    preload().catch((err) => console.error("PokerNet: model failed to load", err));
+  }, []);
+
+  const set = useCallback((s: EngineState) => {
+    engineRef.current = s;
+    setEngine(s);
+  }, []);
+
+  // Show `start`, then let the bots play until the human is up again.
+  const run = useCallback(
+    async (start: EngineState) => {
+      const my = ++generation.current;
+      set(start);
+      setBusy(true);
+      const end = await advance(start);
+      if (generation.current !== my) return;
+      set(end);
+      setBusy(false);
+    },
+    [set],
+  );
 
   const dealHand = useCallback(() => {
-    setEngine((s) =>
-      s.phase === "waiting" || s.phase === "hand-over"
-        ? advance(startHand(s))
-        : s,
-    );
-  }, []);
+    const s = engineRef.current;
+    if (busy || (s.phase !== "waiting" && s.phase !== "hand-over")) return;
+    void run(startHand(s));
+  }, [busy, run]);
 
-  const performAction = useCallback((action: BetAction) => {
-    setEngine((s) => {
-      if (s.phase !== "betting" || !s.players[s.toAct]?.isHuman) return s;
-      return advance(applyAction(s, fromBetAction(action, s)));
-    });
-  }, []);
+  const performAction = useCallback(
+    (action: BetAction) => {
+      const s = engineRef.current;
+      if (busy || s.phase !== "betting" || !s.players[s.toAct]?.isHuman) return;
+      void run(applyAction(s, fromBetAction(action, s)));
+    },
+    [busy, run],
+  );
 
   const newGame = useCallback(() => {
-    setEngine(createTable());
-  }, []);
+    generation.current++;
+    set(createTable());
+    setBusy(false);
+  }, [set]);
 
   return {
     gameState: toGameState(engine),
@@ -68,6 +98,6 @@ export function useGameState(): {
     performAction,
     newGame,
     gameOver: engine.phase === "match-over",
-    isProcessingBots: false, // instant — bots never leave a pending state
+    isProcessingBots: busy,
   };
 }
