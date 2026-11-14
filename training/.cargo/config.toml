@@ -1,0 +1,11 @@
+# libtorch comes from the PyTorch pip wheel installed (as a library only — no
+# Python code runs) under the box workspace:
+#
+#   ~/Workspace/6-max-poker-ai-engine/
+#     repo/training/   <- this workspace
+#     deps/venv/       <- uv venv with torch==2.13.0 (cu130), the libtorch
+#                         version tch 0.26 expects
+#
+# Paths are relative to training/ (the directory holding .cargo/).
+[env]
+LIBTORCH = { value = "../../deps/venv/lib/python3.12/site-packages/torch", relative = true }

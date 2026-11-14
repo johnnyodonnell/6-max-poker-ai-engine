@@ -67,6 +67,11 @@ export interface EnginePlayer {
   bet: number; // chips committed on the current street
   commit: number; // chips committed across the whole hand (for side pots)
   hasActed: boolean;
+  // The street's bet level (currentBet) right after this player last acted.
+  // Only meaningful while hasActed is true: a player who has acted may raise
+  // again only once the bet has grown by a full raise since then (a short
+  // all-in alone doesn't reopen the betting for them).
+  actedAt: number;
   // The player's most recent action on the current street (drives the seat
   // label: CALL / CHECK / FOLD / BET / RAISE / ALL-IN). Cleared each street.
   lastAction: ActionType | null;
@@ -76,6 +81,22 @@ export type ActionType = "fold" | "check" | "call" | "bet" | "raise" | "allin";
 export interface Action {
   type: ActionType;
   amount?: number;
+}
+
+// One betting action in the current hand, in order (blind posts excluded).
+// Structured so an AI encoder can read the hand's betting history.
+export interface HandAction {
+  seat: number;
+  street: Street;
+  // The concrete action taken ('allin' is normalized to call/bet/raise; see
+  // the allin flag).
+  type: "fold" | "check" | "call" | "bet" | "raise";
+  allin: boolean; // the action put the player all-in
+  to: number; // the player's street bet after the action
+  added: number; // chips the action put in
+  potBefore: number; // gathered pot + every street bet, before the action
+  currentBetBefore: number; // street bet level to match, before the action
+  stackBefore: number; // the actor's stack before the action
 }
 
 export interface LegalActions {
@@ -125,6 +146,7 @@ export interface EngineState {
   phase: EnginePhase;
   results: Results | null;
   log: string[];
+  actions: HandAction[]; // this hand's betting actions, oldest first
 }
 
 // --- table / hand setup -----------------------------------------------------
@@ -140,6 +162,7 @@ function createPlayers(): EnginePlayer[] {
     bet: 0,
     commit: 0,
     hasActed: false,
+    actedAt: 0,
     lastAction: null,
   }));
 }
@@ -162,6 +185,7 @@ export function createTable(): EngineState {
     phase: "waiting",
     results: null,
     log: [],
+    actions: [],
   };
 }
 
@@ -197,6 +221,7 @@ export function startHand(prev: EngineState): EngineState {
     bet: 0,
     commit: 0,
     hasActed: false,
+    actedAt: 0,
     lastAction: null,
     // Anyone with chips comes back in; the busted sit out.
     status: p.stack > 0 ? "active" : "out",
@@ -250,6 +275,7 @@ export function startHand(prev: EngineState): EngineState {
     phase: "betting",
     results: null,
     log,
+    actions: [],
   };
 }
 
@@ -290,8 +316,9 @@ export function legalActions(state: EngineState): LegalActions | null {
     opening ? BIG_BLIND : state.currentBet + state.minRaise,
     maxTo,
   );
-  // A raise/bet is only possible if the player can put more in than a call.
-  if (maxTo > state.currentBet) {
+  // A raise/bet is only possible if the player can put more in than a call
+  // and the betting is still open to them.
+  if (maxTo > state.currentBet && hasRaiseRights(state, p)) {
     actions.push(opening ? "bet" : "raise");
   }
 
@@ -303,6 +330,16 @@ export function legalActions(state: EngineState): LegalActions | null {
     maxRaiseTo: maxTo,
     canCheck: toCall <= 0,
   };
+}
+
+// Whether `p` may still bet/raise on this street. Someone who hasn't acted yet
+// always may. Someone who has acted may raise again only once the bet has
+// grown by at least a full raise since they acted: an all-in short of a full
+// raise doesn't reopen the betting for them, though several short all-ins
+// that add up to a full raise do. (A full raise also resets everyone else's
+// hasActed, so they're covered by the first case.)
+function hasRaiseRights(state: EngineState, p: EnginePlayer): boolean {
+  return !p.hasActed || state.currentBet - p.actedAt >= state.minRaise;
 }
 
 // --- applying an action -----------------------------------------------------
@@ -329,6 +366,10 @@ export function applyAction(state: EngineState, action: Action): EngineState {
     if (p.stack === 0) p.status = "allin";
   };
 
+  const stackBefore = p.stack;
+  const betBefore = p.bet;
+  const potBefore = state.pot + state.players.reduce((s, q) => s + q.bet, 0);
+
   let type: ActionType = action.type;
   let amount = action.amount;
   // Normalize an 'allin' into the concrete action it represents.
@@ -336,6 +377,13 @@ export function applyAction(state: EngineState, action: Action): EngineState {
     amount = maxTo;
     if (maxTo <= currentBet) type = currentBet - p.bet > 0 ? "call" : "check";
     else type = currentBet === 0 ? "bet" : "raise";
+  }
+  // A bet/raise (or all-in for more) when the betting isn't open to this
+  // player is just a call.
+  const canRaise =
+    legal.actions.includes("bet") || legal.actions.includes("raise");
+  if ((type === "bet" || type === "raise") && !canRaise) {
+    type = currentBet - p.bet > 0 ? "call" : "check";
   }
 
   switch (type) {
@@ -388,8 +436,29 @@ export function applyAction(state: EngineState, action: Action): EngineState {
   }
 
   p.lastAction = p.status === "allin" ? "allin" : type;
+  p.actedAt = currentBet;
 
-  const next: EngineState = { ...state, players, currentBet, minRaise, log };
+  const actions = state.actions.slice();
+  actions.push({
+    seat: i,
+    street: state.street,
+    type,
+    allin: p.status === "allin",
+    to: p.bet,
+    added: p.bet - betBefore,
+    potBefore,
+    currentBetBefore: state.currentBet,
+    stackBefore,
+  });
+
+  const next: EngineState = {
+    ...state,
+    players,
+    currentBet,
+    minRaise,
+    log,
+    actions,
+  };
 
   // Is the betting round finished?
   if (bettingClosed(next)) {
@@ -569,6 +638,9 @@ function settle(state: EngineState, reveal: boolean): EngineState {
       }
     }
     // Split, awarding odd chips to the earliest seats left of the button.
+    const leftOfButton = (id: number): number =>
+      (id - state.button - 1 + SEATS) % SEATS;
+    winners.sort((a, b) => leftOfButton(a) - leftOfButton(b));
     const share = Math.floor(pot.amount / winners.length);
     let remainder = pot.amount - share * winners.length;
     for (const id of winners) {

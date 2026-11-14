@@ -1,0 +1,18 @@
+[package]
+name = "trainer"
+version = "0.1.0"
+edition = "2021"
+description = "Self-play REINFORCE trainer, evaluator and ONNX exporter for the 6-max poker engine (tch/libtorch)"
+
+[[bin]]
+name = "poker"
+path = "src/main.rs"
+
+[dependencies]
+poker_core = { path = "../poker_core" }
+# tch 0.26 expects libtorch 2.13.0 — matches deps/venv's torch==2.13.0.
+tch = "0.26"
+rand = { workspace = true }
+rand_distr = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
