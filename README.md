@@ -5,12 +5,11 @@ A single-table, 6-handed **No-Limit Texas Hold'em** game in the browser
 bottom seat; the other five are bots.
 
 The bots are a **neural network** trained by search-free self-play
-(REINFORCE). On its turn a bot runs one forward pass of
+(PPO with a training-only critic). On its turn a bot runs one forward pass of
 `public/models/current.onnx` in the browser (onnxruntime-web, WebGPU with a
-WASM fallback). It then *samples* its move from the policy: fold, check/call,
-raise or all-in, and for a raise a size drawn from a continuous distribution
-over pot fractions. Training lives in `training/` (all Rust; see
-`training/README.md`).
+WASM fallback). It then *samples* its move from the policy over ten discrete
+actions: fold, check/call, min-raise, six bet sizes (33–250% of the pot) and
+all-in. Training lives in `training/` (all Rust; see `training/README.md`).
 
 The engine module exposes a single `bestMove(state)` function, so the engine can
 be swapped without touching the UI. This is the same pattern as the sibling
@@ -69,7 +68,7 @@ src/
                         sample a move
     net.ts              onnxruntime-web session for public/models/current.onnx
     encode.ts           the network's input encoding (Rust mirror in training/)
-    actions.ts          action types, raise-size math, truncated-normal sampler
+    actions.ts          the discrete action space and its raise-to amounts
     random.ts           the original random engine
     adapt.ts            maps engine state <-> the UI's GameState / BetAction
   components/

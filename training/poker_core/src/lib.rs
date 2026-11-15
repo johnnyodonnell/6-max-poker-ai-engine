@@ -8,6 +8,7 @@ pub mod actions;
 pub mod allin_ev;
 pub mod cards;
 pub mod encode;
+pub mod equity;
 pub mod hand_eval;
 pub mod rules;
 pub mod table;

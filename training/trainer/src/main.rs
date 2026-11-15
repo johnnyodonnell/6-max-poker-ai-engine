@@ -7,12 +7,14 @@
 //!                                   write the browser ONNX (+ a parity fixture:
 //!                                   real encoded positions and tch's outputs)
 //!   train --run-dir DIR [...]       the self-play REINFORCE daemon (see run.rs)
-//!   eval / match                    bb/100 evaluation and the pool ladder (eval.rs)
+//!   eval / match / best             bb/100 evaluation and the pool ladder (eval.rs)
+//!   probe --weights w.safetensors   poker-sense probes of a policy (probe.rs)
 
 mod eval;
 mod hud;
 mod net;
 mod onnx;
+mod probe;
 mod run;
 mod selfplay;
 mod train;
@@ -56,18 +58,12 @@ fn gpu_check() -> bool {
 
     // The poker net itself: forward on the GPU.
     let vs2 = nn::VarStore::new(dev);
-    let pnet = net::PokerNet::new(&vs2.root());
+    let pnet = net::PokerNet::new(&vs2.root(), net::NetCfg::POLICY);
     let xs = Tensor::from_slice(&random_positions(256, 1).concat())
         .view([256, poker_core::encode::INPUT_SIZE as i64])
         .to_device(dev);
     let out = pnet.forward(&xs);
-    println!(
-        "poker net: {} params, outputs {:?} {:?} {:?}",
-        net::n_params(&vs2),
-        out.type_logits.size(),
-        out.size_params.size(),
-        out.value.size()
-    );
+    println!("poker net: {} params, logits {:?}", net::n_params(&vs2), out.size());
 
     let ok = cuda && last < 0.5 * first;
     println!("{}", if ok { "GPU-CHECK OK" } else { "GPU-CHECK FAILED" });
@@ -80,7 +76,7 @@ fn export(args: &[String]) {
     if let Some(seed) = flag(args, "--init") {
         tch::manual_seed(seed.parse().expect("--init SEED"));
     }
-    let pnet = net::PokerNet::new(&vs.root());
+    let pnet = net::PokerNet::new(&vs.root(), net::NetCfg::POLICY);
     if let Some(w) = flag(args, "--weights") {
         vs.load(&w).unwrap_or_else(|e| panic!("load {w}: {e}"));
     } else if !has_flag(args, "--init") {
@@ -98,9 +94,7 @@ fn export(args: &[String]) {
         let json = serde_json::json!({
             "n": n,
             "inputs": rows,
-            "type_logits": v(&o.type_logits),
-            "size_params": v(&o.size_params),
-            "value": v(&o.value),
+            "logits": v(&o),
         });
         std::fs::write(&fx, json.to_string()).expect("write fixture");
         println!("wrote {fx} ({n} positions)");
@@ -116,8 +110,16 @@ fn main() {
         Some("eval") => eval::eval_cmd(&args),
         Some("match") => eval::match_cmd(&args),
         Some("best") => eval::best_cmd(&args),
+        Some("probe") => {
+            let w = flag(&args, "--weights").expect("--weights w.safetensors");
+            let dev = if tch::Cuda::is_available() { Device::Cuda(0) } else { Device::Cpu };
+            let mut vs = nn::VarStore::new(dev);
+            let pnet = net::PokerNet::new(&vs.root(), net::NetCfg::POLICY);
+            vs.load(&w).unwrap_or_else(|e| panic!("load {w}: {e}"));
+            println!("{}", serde_json::to_string_pretty(&probe::run(&pnet, dev)).unwrap());
+        }
         other => {
-            eprintln!("unknown subcommand {other:?}; expected: gpu-check | export | train | eval | match | best");
+            eprintln!("unknown subcommand {other:?}; expected: gpu-check | export | train | eval | match | best | probe");
             std::process::exit(2);
         }
     }

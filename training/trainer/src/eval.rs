@@ -26,14 +26,14 @@ use serde_json::{json, Value};
 use tch::nn::VarStore;
 use tch::{Device, Kind, Tensor};
 
-use poker_core::actions::{to_action, NUM_TYPES};
+use poker_core::actions::{to_action, NUM_ACTIONS};
 use poker_core::allin_ev::{expected_stacks, is_runout};
 use poker_core::cards::full_deck;
 use poker_core::encode::{encode_into, INPUT_SIZE};
 use poker_core::rules::{Action, ActionType, Phase, State, SEATS, STARTING_STACK};
 
-use crate::net::PokerNet;
-use crate::selfplay::sample_policy;
+use crate::net::{NetCfg, PokerNet};
+use crate::selfplay::sample_action;
 use crate::util::{flag, has_flag};
 
 pub const RANDOM: &str = "random";
@@ -49,7 +49,7 @@ pub fn load_agent(spec: &str, dev: Device) -> Agent {
         return Agent::Random;
     }
     let mut vs = VarStore::new(dev);
-    let net = PokerNet::new(&vs.root());
+    let net = PokerNet::new(&vs.root(), NetCfg::POLICY);
     vs.load(spec).unwrap_or_else(|e| panic!("load {spec}: {e}"));
     Agent::Net(vs, net)
 }
@@ -150,15 +150,12 @@ pub fn play_match(a: &Agent, b: &Agent, deals: usize, seed: u64, dev: Device) ->
                         }
                         let xs = Tensor::from_slice(&buf).view([mine.len() as i64, INPUT_SIZE as i64]).to_device(dev);
                         let out = tch::no_grad(|| net.forward(&xs));
-                        let v = |t: &Tensor| {
-                            Vec::<f32>::try_from(&t.to_kind(Kind::Float).to_device(Device::Cpu).contiguous().view([-1])).unwrap()
-                        };
-                        let (logits, size) = (v(&out.type_logits), v(&out.size_params));
+                        let logits =
+                            Vec::<f32>::try_from(&out.to_kind(Kind::Float).to_device(Device::Cpu).contiguous().view([-1])).unwrap();
                         for (k, &i) in mine.iter().enumerate() {
                             let sp = &spaces[k];
-                            let (ty, s, _) =
-                                sample_policy(sp, &logits[k * NUM_TYPES..(k + 1) * NUM_TYPES], &size[k * 2..k * 2 + 2], &mut rng);
-                            games[i].st.apply(to_action(sp, ty, s));
+                            let (act, _) = sample_action(sp, &logits[k * NUM_ACTIONS..(k + 1) * NUM_ACTIONS], &mut rng);
+                            games[i].st.apply(to_action(sp, act));
                         }
                     }
                 }
@@ -235,20 +232,21 @@ fn refit(pool: &mut Value) {
     }
 }
 
-/// Evaluate a new snapshot against the pool and update pool.json. `prev`
-/// (the previous snapshot's name) is always among the opponents; returns the
-/// candidate's (bb/100, 95% CI) against it.
+/// Evaluate a new snapshot against the pool and update pool.json. The
+/// snapshots named in `must` (e.g. the previous one and the training anchor)
+/// are always among the opponents. Returns the candidate's (bb/100, 95% CI)
+/// against every opponent played.
 #[allow(clippy::too_many_arguments)]
 pub fn evaluate(
     run_dir: &str,
     candidate: &Path,
-    prev: Option<&str>,
+    must: &[String],
     deals: usize,
     n_top: usize,
     n_anchors: usize,
     seed: u64,
     dev: Device,
-) -> Option<(f64, f64)> {
+) -> std::collections::HashMap<String, (f64, f64)> {
     let pool_path = Path::new(run_dir).join("pool.json");
     let mut pool = load_pool(&pool_path);
     let name = candidate.file_stem().unwrap().to_string_lossy().into_owned();
@@ -263,8 +261,10 @@ pub fn evaluate(
         .collect();
     rated.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap());
     let mut opps: Vec<String> = vec![RANDOM.to_string()];
-    if let Some(p) = prev.filter(|p| pool["models"].get(*p).is_some()) {
-        opps.push(p.to_string());
+    for p in must {
+        if pool["models"].get(p).is_some() && !opps.contains(p) {
+            opps.push(p.clone());
+        }
     }
     for r in rated.iter().take(n_top) {
         if !opps.contains(&r.0) {
@@ -284,7 +284,7 @@ pub fn evaluate(
         }
     }
 
-    let mut vs_prev = None;
+    let mut results = std::collections::HashMap::new();
     let cand = load_agent(&candidate.to_string_lossy(), dev);
     pool["models"][&name] = json!({"rating": 0.0, "path": candidate.to_string_lossy()});
     for o in &opps {
@@ -292,9 +292,7 @@ pub fn evaluate(
         let opp = load_agent(&spec, dev);
         let (bb, ci) = play_match(&cand, &opp, deals, seed, dev);
         println!("[eval] {name} vs {o}: {bb:+.1} ± {ci:.1} bb/100 ({} hands)", deals * SEATS);
-        if Some(o.as_str()) == prev {
-            vs_prev = Some((bb, ci));
-        }
+        results.insert(o.clone(), (bb, ci));
         pool["results"].as_array_mut().unwrap().push(json!({
             "a": name, "b": o, "bb100": (bb * 10.0).round() / 10.0, "ci": (ci * 10.0).round() / 10.0, "deals": deals,
         }));
@@ -315,7 +313,7 @@ pub fn evaluate(
         .collect();
     println!("[eval] ladder: {}", top.join("  "));
     std::fs::write(&pool_path, serde_json::to_string_pretty(&pool).unwrap()).expect("write pool.json");
-    vs_prev
+    results
 }
 
 fn usize_flag(args: &[String], key: &str, default: usize) -> usize {
@@ -326,17 +324,21 @@ fn device() -> Device {
     if tch::Cuda::is_available() { Device::Cuda(0) } else { Device::Cpu }
 }
 
-/// Called by the training daemon after each snapshot; returns the result
-/// against the previous snapshot (see `evaluate`).
-pub fn after_snapshot(run_dir: &str, snapshot: &Path, prev: Option<&str>, args: &[String]) -> Option<(f64, f64)> {
+/// Called by the training daemon after each snapshot (see `evaluate`).
+pub fn after_snapshot(
+    run_dir: &str,
+    snapshot: &Path,
+    must: &[String],
+    args: &[String],
+) -> std::collections::HashMap<String, (f64, f64)> {
     if has_flag(args, "--no-eval") {
-        return None;
+        return Default::default();
     }
     let seed = snapshot.to_string_lossy().bytes().fold(7u64, |h, b| h.wrapping_mul(31).wrapping_add(b as u64));
     evaluate(
         run_dir,
         snapshot,
-        prev,
+        must,
         usize_flag(args, "--eval-deals", 2000),
         usize_flag(args, "--n-top", 2),
         usize_flag(args, "--n-anchors", 3),
@@ -352,7 +354,7 @@ pub fn eval_cmd(args: &[String]) {
     evaluate(
         &run_dir,
         Path::new(&cand),
-        None,
+        &[],
         usize_flag(args, "--deals", 2000),
         usize_flag(args, "--n-top", 2),
         usize_flag(args, "--n-anchors", 3),

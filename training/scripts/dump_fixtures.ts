@@ -6,8 +6,8 @@
 //       legal-action set it was chosen from), every advanceStreet, the state
 //       after each step, and each hand's results + action history.
 //       Every other decision also carries the encoder's output (sparse
-//       [index, value] pairs), the action space, and raise-to amounts for a
-//       few sizes, for encoder / action-space parity.
+//       [index, value] pairs), the action space, and the discrete actions'
+//       legality and raise-to amounts, for encoder / action-space parity.
 //   training/fixtures/eval_hands.json     random 7-card hands with their
 //       evaluate7 score arrays (for ordering parity).
 //
@@ -30,7 +30,6 @@ import {
 } from "../../src/engine/game.ts";
 import type { EngineState } from "../../src/engine/game.ts";
 import { bestMove } from "../../src/engine/random.ts";
-import { raiseToFor } from "../../src/engine/actions.ts";
 import { encode } from "../../src/engine/encode.ts";
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -88,13 +87,6 @@ function encoding(s: EngineState) {
     if (v !== 0) enc.push([i, v]);
   });
   const sp = e.space;
-  const sizes: [number, number][] = [];
-  if (sp.mask[2]) {
-    for (const t of [-0.25, 0, 0.37, 0.81, 1.25]) {
-      const sv = sp.sLo + t * (sp.sHi - sp.sLo);
-      sizes.push([sv, raiseToFor(sp, sv)]);
-    }
-  }
   return {
     enc,
     space: {
@@ -104,8 +96,9 @@ function encoding(s: EngineState) {
       maxRaiseTo: sp.maxRaiseTo,
       sLo: sp.sLo,
       sHi: sp.sHi,
+      amask: sp.amask,
+      amounts: sp.amounts,
     },
-    sizes,
   };
 }
 

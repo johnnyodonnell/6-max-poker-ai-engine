@@ -2,14 +2,14 @@
 # Promote a snapshot to the browser model (public/models/current.onnx), then
 # verify it: ONNX-vs-tch parity and the browser-engine e2e test.
 #
-#   training/promote.sh                 # top-rated snapshot of run1
-#   RUN=run2 training/promote.sh        # ... of another run
+#   training/promote.sh                 # top-rated snapshot of run2
+#   RUN=run1 training/promote.sh        # ... of another run
 #   training/promote.sh <snapshot path on the box>
 #
 # Commit public/models/current.onnx afterwards.
 set -euo pipefail
 cd "$(dirname "$0")/.."
-RUN="${RUN:-run1}"
+RUN="${RUN:-run2}"
 W='~/Workspace/6-max-poker-ai-engine'
 BIN="$W/repo/training/target/release/poker"
 

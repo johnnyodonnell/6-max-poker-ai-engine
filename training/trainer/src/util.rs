@@ -3,7 +3,7 @@
 use rand::rngs::StdRng;
 use rand::{Rng, SeedableRng};
 
-use poker_core::actions::{sample_trunc_normal, to_action, NUM_TYPES};
+use poker_core::actions::{to_action, NUM_ACTIONS};
 use poker_core::encode::encode;
 use poker_core::table::deal_training_hand;
 
@@ -17,7 +17,7 @@ pub fn has_flag(args: &[String], key: &str) -> bool {
 }
 
 /// `n` encoded decision points from random play on sampled training tables
-/// (uniform legal action type, random raise size) — varied, realistic inputs
+/// (uniform legal discrete action) — varied, realistic inputs
 /// for parity fixtures and smoke tests.
 pub fn random_positions(n: usize, seed: u64) -> Vec<Vec<f32>> {
     let mut rng = StdRng::seed_from_u64(seed);
@@ -29,10 +29,9 @@ pub fn random_positions(n: usize, seed: u64) -> Vec<Vec<f32>> {
                 poker_core::rules::Phase::Betting if s.to_act >= 0 => {
                     let (x, sp) = encode(&s).expect("encode");
                     out.push(x);
-                    let legal: Vec<usize> = (0..NUM_TYPES).filter(|&t| sp.mask[t] > 0.0).collect();
-                    let ty = legal[rng.gen_range(0..legal.len())];
-                    let sz = sample_trunc_normal(-0.5, 0.8, sp.s_lo, sp.s_hi, &mut rng);
-                    s.apply(to_action(&sp, ty, sz));
+                    let legal: Vec<usize> = (0..NUM_ACTIONS).filter(|&a| sp.amask[a] > 0.0).collect();
+                    let a = legal[rng.gen_range(0..legal.len())];
+                    s.apply(to_action(&sp, a));
                 }
                 _ => s.advance_street(),
             }

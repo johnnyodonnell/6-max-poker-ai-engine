@@ -1,45 +1,114 @@
-//! Search-free self-play: every seat at every table plays the current network.
+//! Search-free self-play: every seat at every table plays the current policy.
 //!
 //! `n_slots` hands are in flight. Each step:
 //!   1. (parallel, CPU) every slot advances to its next decision — finishing
 //!      hands and dealing new ones as needed — and encodes it;
 //!   2. (GPU) one batched forward over all slots;
-//!   3. (parallel, CPU) every slot samples an action from the policy
-//!      (temperature 1: masked softmax over action types, then a truncated
-//!      normal for a raise size), records the decision, and applies it.
+//!   3. (parallel, CPU) every slot samples a discrete action from the masked
+//!      softmax (temperature 1), records the decision (with the critic's
+//!      privileged inputs), and applies it.
 //! When a hand ends, each seat's chip result (all-in-EV adjusted when the
 //! board was run out with no decisions left) becomes `z` for all of that
-//! seat's decisions in the hand. Stops once `target_rows` decisions are done;
-//! hands still in flight are discarded.
+//! seat's decisions in the hand.
+//!
+//! The slots persist across cohorts: a cohort takes the decisions of hands
+//! that *finished* during it, and hands still in flight carry over to the
+//! next cohort (their early decisions were sampled by the previous weights,
+//! which the stored behavior probabilities account for). Throwing them away
+//! instead would drop long, big-pot hands preferentially.
 
 use rand::rngs::StdRng;
 use rand::{Rng, SeedableRng};
 use rayon::prelude::*;
 use tch::{Device, Kind, Tensor};
 
-use poker_core::actions::{sample_trunc_normal, to_action, trunc_normal_logpdf, ActionSpace, NUM_TYPES, RAISE};
+use poker_core::actions::{pot_fraction, to_action, ActionSpace, A_ALLIN, A_FOLD, A_MINRAISE, NUM_ACTIONS};
 use poker_core::allin_ev::{expected_stacks, is_runout};
-use poker_core::encode::{encode_into, INPUT_SIZE};
-use poker_core::rules::{Phase, State, SEATS};
+use poker_core::cards::Card;
+use poker_core::encode::{canonical_index, encode_into, suit_map, INPUT_SIZE, NO_CARD};
+use poker_core::equity::equity;
+use poker_core::rules::{Phase, State, Status, SEATS};
 use poker_core::table::deal_training_hand;
 
 use crate::hud::Hud;
-use crate::net::PokerNet;
+use crate::net::{PokerNet, PRIV_SIZE};
 
 /// Chips per unit of reward (the 100bb starting stack).
 pub const Z_SCALE: f64 = 200.0;
+/// Monte Carlo samples for the critic's equity input.
+const EQUITY_SAMPLES: usize = 32;
 
 /// One recorded decision.
 pub struct Row {
     pub x: Vec<f32>,
-    pub mask: [f32; NUM_TYPES],
-    pub lo: f32,
-    pub hi: f32,
-    pub ty: u8,
-    pub s: f32,
-    /// Behavior log-prob of (type, size) under the sampling policy.
-    pub logp: f32,
+    /// Critic-only inputs (see net::PRIV_SIZE).
+    pub p: [f32; PRIV_SIZE],
+    pub amask: [f32; NUM_ACTIONS],
+    /// Behavior policy (masked softmax) the action was sampled from.
+    pub probs: [f32; NUM_ACTIONS],
+    pub a: u8,
+    /// Exact value of folding here: the chips already put in, lost (/ Z_SCALE).
+    pub fold_q: f32,
     pub z: f32,
+}
+
+/// Masked softmax over the legal actions, then a sample. Returns (action, probs).
+pub fn sample_action(sp: &ActionSpace, logits: &[f32], rng: &mut impl Rng) -> (usize, [f32; NUM_ACTIONS]) {
+    let mx = (0..NUM_ACTIONS).filter(|&a| sp.amask[a] > 0.0).map(|a| logits[a] as f64).fold(f64::NEG_INFINITY, f64::max);
+    let mut w = [0f64; NUM_ACTIONS];
+    let mut tot = 0.0;
+    for a in 0..NUM_ACTIONS {
+        if sp.amask[a] > 0.0 {
+            w[a] = (logits[a] as f64 - mx).exp();
+            tot += w[a];
+        }
+    }
+    let mut probs = [0f32; NUM_ACTIONS];
+    for a in 0..NUM_ACTIONS {
+        probs[a] = (w[a] / tot) as f32;
+    }
+    let r: f64 = rng.gen::<f64>() * tot;
+    let mut acc = 0.0;
+    let mut choice = (0..NUM_ACTIONS).rev().find(|&a| sp.amask[a] > 0.0).unwrap();
+    for a in 0..NUM_ACTIONS {
+        if sp.amask[a] > 0.0 {
+            acc += w[a];
+            if r < acc {
+                choice = a;
+                break;
+            }
+        }
+    }
+    (choice, probs)
+}
+
+/// The critic's privileged inputs for the player to act: every live
+/// opponent's hole cards (relative seat order, canonical suits extending the
+/// mover's mapping), the mover's showdown equity against them, and the live
+/// opponent count / 5.
+fn privileged(st: &State, rng: &mut impl Rng) -> [f32; PRIV_SIZE] {
+    let mover = st.to_act as usize;
+    let me = &st.players[mover];
+    let mut map = suit_map(&me.hole, &st.community);
+    let mut out = [NO_CARD; PRIV_SIZE];
+    let mut opps: Vec<&[Card]> = Vec::new();
+    let mut dead: Vec<Card> = Vec::new();
+    for r in 1..SEATS {
+        let p = &st.players[(mover + r) % SEATS];
+        if p.hole.len() < 2 {
+            continue;
+        }
+        if matches!(p.status, Status::Active | Status::AllIn) {
+            out[2 * (r - 1)] = canonical_index(p.hole[0], &mut map);
+            out[2 * (r - 1) + 1] = canonical_index(p.hole[1], &mut map);
+            opps.push(&p.hole);
+        } else {
+            dead.extend_from_slice(&p.hole);
+        }
+    }
+    out[10] = equity(&me.hole, &opps, &st.community, &dead, EQUITY_SAMPLES, rng) as f32;
+    out[11] = opps.len() as f32 / 5.0;
+    out
 }
 
 struct Slot {
@@ -105,66 +174,19 @@ impl Slot {
         }
     }
 
-    /// Sample from the policy outputs, record the decision, apply it.
-    fn act(&mut self, x: &[f32], logits: &[f32], size: &[f32]) {
+    /// Sample from the policy logits, record the decision, apply it.
+    fn act(&mut self, x: &[f32], logits: &[f32]) {
         let sp = self.sp.take().expect("pending decision");
-        let (ty, s, logp) = sample_policy(&sp, logits, size, &mut self.rng);
-        self.hud.record_decision(ty, s);
+        let (a, probs) = sample_action(&sp, logits, &mut self.rng);
+        let sized = (A_MINRAISE..A_ALLIN).contains(&a);
+        self.hud.record_decision(a, if sized { pot_fraction(&sp, a) } else { 0.0 });
         let seat = self.st.to_act as usize;
-        self.pending.push((
-            seat,
-            Row {
-                x: x.to_vec(),
-                mask: sp.mask,
-                lo: sp.s_lo as f32,
-                hi: sp.s_hi as f32,
-                ty: ty as u8,
-                s: s as f32,
-                logp: logp as f32,
-                z: 0.0,
-            },
-        ));
-        self.st.apply(to_action(&sp, ty, s));
+        let p = privileged(&self.st, &mut self.rng);
+        let fold_q = ((self.st.players[seat].stack - self.start[seat]) as f64 / Z_SCALE) as f32;
+        self.pending.push((seat, Row { x: x.to_vec(), p, amask: sp.amask, probs, a: a as u8, fold_q, z: 0.0 }));
+        debug_assert!(a != A_FOLD || sp.amask[A_FOLD] > 0.0);
+        self.st.apply(to_action(&sp, a));
     }
-}
-
-/// Sample (action type, raise size) from the policy outputs for one decision
-/// — temperature 1: masked softmax over the types, then a truncated normal
-/// for a raise's size. Returns (type, s, log-prob of the sampled action).
-pub fn sample_policy(sp: &ActionSpace, logits: &[f32], size: &[f32], rng: &mut impl Rng) -> (usize, f64, f64) {
-    let mut lp = [f64::NEG_INFINITY; NUM_TYPES];
-    let mx = (0..NUM_TYPES).filter(|&t| sp.mask[t] > 0.0).map(|t| logits[t] as f64).fold(f64::NEG_INFINITY, f64::max);
-    let mut z = 0.0;
-    for t in 0..NUM_TYPES {
-        if sp.mask[t] > 0.0 {
-            z += (logits[t] as f64 - mx).exp();
-        }
-    }
-    for t in 0..NUM_TYPES {
-        if sp.mask[t] > 0.0 {
-            lp[t] = logits[t] as f64 - mx - z.ln();
-        }
-    }
-    let r: f64 = rng.gen();
-    let mut acc = 0.0;
-    let mut ty = (0..NUM_TYPES).rev().find(|&t| sp.mask[t] > 0.0).unwrap();
-    for t in 0..NUM_TYPES {
-        if sp.mask[t] > 0.0 {
-            acc += lp[t].exp();
-            if r < acc {
-                ty = t;
-                break;
-            }
-        }
-    }
-    let mut logp = lp[ty];
-    let mut s = sp.s_lo;
-    if ty == RAISE && sp.s_hi > sp.s_lo {
-        let (mu, sigma) = (size[0] as f64, size[1] as f64);
-        s = sample_trunc_normal(mu, sigma, sp.s_lo, sp.s_hi, rng);
-        logp += trunc_normal_logpdf(s, mu, sigma, sp.s_lo, sp.s_hi);
-    }
-    (ty, s, logp)
 }
 
 pub struct Cohort {
@@ -173,43 +195,45 @@ pub struct Cohort {
     pub forwards: usize,
 }
 
-/// Play self-play hands with `net` until at least `target_rows` decisions
-/// from finished hands are collected.
-pub fn run_cohort(net: &PokerNet, dev: Device, n_slots: usize, target_rows: usize, seed: u64) -> Cohort {
-    let mut slots: Vec<Slot> = (0..n_slots)
-        .into_par_iter()
-        .map(|i| Slot::new(seed.wrapping_mul(1_000_003).wrapping_add(i as u64)))
-        .collect();
-    let mut buf = vec![0f32; n_slots * INPUT_SIZE];
-    let mut forwards = 0;
-    loop {
-        slots
-            .par_iter_mut()
-            .zip(buf.par_chunks_mut(INPUT_SIZE))
-            .for_each(|(slot, x)| slot.advance_and_encode(x));
-        let done: usize = slots.iter().map(|s| s.done.len()).sum();
-        if done >= target_rows {
-            break;
+/// Self-play tables that live for the whole run.
+pub struct SelfPlay {
+    slots: Vec<Slot>,
+    buf: Vec<f32>,
+}
+
+impl SelfPlay {
+    pub fn new(n_slots: usize, seed: u64) -> SelfPlay {
+        let slots = (0..n_slots).into_par_iter().map(|i| Slot::new(seed.wrapping_mul(1_000_003).wrapping_add(i as u64))).collect();
+        SelfPlay { slots, buf: vec![0f32; n_slots * INPUT_SIZE] }
+    }
+
+    /// Play until at least `target_rows` decisions from hands finished in this
+    /// call are collected; unfinished hands continue next call.
+    pub fn run_cohort(&mut self, net: &PokerNet, dev: Device, target_rows: usize) -> Cohort {
+        let n = self.slots.len();
+        let mut forwards = 0;
+        loop {
+            self.slots.par_iter_mut().zip(self.buf.par_chunks_mut(INPUT_SIZE)).for_each(|(slot, x)| slot.advance_and_encode(x));
+            let done: usize = self.slots.iter().map(|s| s.done.len()).sum();
+            if done >= target_rows {
+                break;
+            }
+            let xs = Tensor::from_slice(&self.buf).view([n as i64, INPUT_SIZE as i64]).to_device(dev);
+            let out = tch::no_grad(|| net.forward(&xs));
+            let logits = Vec::<f32>::try_from(&out.to_kind(Kind::Float).to_device(Device::Cpu).contiguous().view([-1])).unwrap();
+            forwards += 1;
+            self.slots
+                .par_iter_mut()
+                .zip(self.buf.par_chunks(INPUT_SIZE))
+                .zip(logits.par_chunks(NUM_ACTIONS))
+                .for_each(|((slot, x), l)| slot.act(x, l));
         }
-        let xs = Tensor::from_slice(&buf).view([n_slots as i64, INPUT_SIZE as i64]).to_device(dev);
-        let out = tch::no_grad(|| net.forward(&xs));
-        let to_vec = |t: &Tensor| {
-            Vec::<f32>::try_from(&t.to_kind(Kind::Float).to_device(Device::Cpu).contiguous().view([-1])).unwrap()
-        };
-        let logits = to_vec(&out.type_logits);
-        let size = to_vec(&out.size_params);
-        forwards += 1;
-        slots
-            .par_iter_mut()
-            .zip(buf.par_chunks(INPUT_SIZE))
-            .zip(logits.par_chunks(NUM_TYPES).zip(size.par_chunks(2)))
-            .for_each(|((slot, x), (l, sz))| slot.act(x, l, sz));
+        let mut hud = Hud::default();
+        let mut rows = Vec::new();
+        for s in self.slots.iter_mut() {
+            hud.merge(&std::mem::take(&mut s.hud));
+            rows.append(&mut s.done);
+        }
+        Cohort { rows, hud, forwards }
     }
-    let mut hud = Hud::default();
-    let mut rows = Vec::new();
-    for s in slots {
-        hud.merge(&s.hud);
-        rows.extend(s.done);
-    }
-    Cohort { rows, hud, forwards }
 }

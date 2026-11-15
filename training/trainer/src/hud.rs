@@ -4,9 +4,10 @@
 //! Per seat dealt in: VPIP (voluntarily put chips in preflop), PFR (raised
 //! preflop), 3-bet (re-raised a single preflop raise), c-bet (preflop
 //! aggressor bets the flop when checked to), plus showdown rate, action-type
-//! mix, all-in rate and raise-size quantiles (as pot fractions).
+//! mix (per discrete action), all-in rate and bet-size quantiles (as pot
+//! fractions).
 
-use poker_core::actions::{ALLIN, NUM_TYPES, RAISE};
+use poker_core::actions::{ACTION_NAMES, A_ALLIN, A_CALL, A_FOLD, NUM_ACTIONS};
 use poker_core::rules::{ActionType, State, Status, Street};
 use serde_json::{json, Value};
 
@@ -22,16 +23,17 @@ pub struct Hud {
     pub cbet: u64,
     pub showdowns: u64,
     pub decisions: u64,
-    pub types: [u64; NUM_TYPES],
-    pub raise_s: Vec<f32>,
+    pub actions: [u64; NUM_ACTIONS],
+    pub raise_f: Vec<f32>,
 }
 
 impl Hud {
-    pub fn record_decision(&mut self, ty: usize, s: f64) {
+    /// `frac`: the bet's pot fraction for a sized action (else unused).
+    pub fn record_decision(&mut self, a: usize, frac: f64) {
         self.decisions += 1;
-        self.types[ty] += 1;
-        if ty == RAISE && self.raise_s.len() < 200_000 {
-            self.raise_s.push(s as f32);
+        self.actions[a] += 1;
+        if a != A_FOLD && a != A_CALL && a != A_ALLIN && self.raise_f.len() < 200_000 {
+            self.raise_f.push(frac as f32);
         }
     }
 
@@ -92,23 +94,23 @@ impl Hud {
         self.cbet += o.cbet;
         self.showdowns += o.showdowns;
         self.decisions += o.decisions;
-        for i in 0..NUM_TYPES {
-            self.types[i] += o.types[i];
+        for i in 0..NUM_ACTIONS {
+            self.actions[i] += o.actions[i];
         }
-        let room = 200_000usize.saturating_sub(self.raise_s.len());
-        self.raise_s.extend(o.raise_s.iter().take(room));
+        let room = 200_000usize.saturating_sub(self.raise_f.len());
+        self.raise_f.extend(o.raise_f.iter().take(room));
     }
 
     pub fn to_json(&self) -> Value {
         let pct = |a: u64, b: u64| if b == 0 { 0.0 } else { (1000.0 * a as f64 / b as f64).round() / 10.0 };
-        let mut s = self.raise_s.clone();
+        let mut s = self.raise_f.clone();
         s.sort_by(|a, b| a.partial_cmp(b).unwrap());
         let q = |p: f64| {
             if s.is_empty() {
                 0.0
             } else {
                 let v = s[((p * (s.len() - 1) as f64) as usize).min(s.len() - 1)] as f64;
-                (v.exp() * 100.0).round() / 100.0
+                (v * 100.0).round() / 100.0
             }
         };
         json!({
@@ -117,10 +119,11 @@ impl Hud {
             "3bet": pct(self.threebet, self.threebet_opp),
             "cbet": pct(self.cbet, self.cbet_opp),
             "wtsd": pct(self.showdowns, self.hands),
-            "fold": pct(self.types[0], self.decisions),
-            "call": pct(self.types[1], self.decisions),
-            "raise": pct(self.types[2], self.decisions),
-            "allin": pct(self.types[ALLIN], self.decisions),
+            "fold": pct(self.actions[A_FOLD], self.decisions),
+            "call": pct(self.actions[A_CALL], self.decisions),
+            "raise": pct(self.decisions - self.actions[A_FOLD] - self.actions[A_CALL] - self.actions[A_ALLIN], self.decisions),
+            "allin": pct(self.actions[A_ALLIN], self.decisions),
+            "mix": ACTION_NAMES.iter().enumerate().map(|(i, n)| (n.to_string(), json!(pct(self.actions[i], self.decisions)))).collect::<serde_json::Map<_, _>>(),
             "size_q10_50_90": [q(0.1), q(0.5), q(0.9)],
         })
     }

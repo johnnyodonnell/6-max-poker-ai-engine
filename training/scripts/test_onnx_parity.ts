@@ -34,7 +34,7 @@ const session = await ort.InferenceSession.create(readFileSync(modelPath), {
 const out = await session.run({ input: new ort.Tensor("float32", input, [n, INPUT_SIZE]) });
 
 let worst = 0;
-for (const name of ["type_logits", "size_params", "value"]) {
+for (const name of ["logits"]) {
   const got = out[name].data as Float32Array;
   const want: number[] = fx[name];
   if (got.length !== want.length) throw new Error(`${name}: length ${got.length} vs ${want.length}`);

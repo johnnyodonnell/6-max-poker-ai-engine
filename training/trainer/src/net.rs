@@ -1,24 +1,33 @@
-//! The policy/value network, defined once from building blocks that each know
-//! how to run in tch (`fwd`, used for self-play and training) and how to write
-//! themselves into an ONNX graph (`emit`, used for the browser export). The
-//! exported model is checked against `fwd` by training/scripts/test_onnx_parity.ts.
+//! The networks, defined once from building blocks that each know how to run
+//! in tch (`fwd`, used for self-play and training) and how to write themselves
+//! into an ONNX graph (`emit`, used for the browser export). The exported model
+//! is checked against `fwd` by training/scripts/test_onnx_parity.ts.
 //!
 //! Input: the flat encoding from poker_core::encode ([B, INPUT_SIZE]), sliced
 //! into cards / history tokens / static features.
-//!   cards   -> card+rank+suit embeddings, summed per group (hole, flop, turn,
-//!              river), undealt slots masked to zero            -> [B, 4*D_CARD]
+//!   cards   -> (a) card+rank+suit embeddings, summed per group (hole, flop,
+//!              turn, river)                                     -> [B, 4*D_CARD]
+//!              (b) suit x rank planes (multi-hot 4x13) for hole, flop, turn,
+//!              river, board and all cards, plus each of hole/board/all's rank
+//!              and suit counts -> Linear -> GELU               -> [B, D_PLANES]
+//!              The planes make card *relations* (pairs, sets, flushes,
+//!              straights) simple patterns; summed embeddings hide them.
 //!   history -> token projection + position embedding, pre-LN self-attention
 //!              layers, pooled as masked mean + masked max + learned-query
 //!              readouts, zeroed when there is no history       -> [B, (R+2)*D_MODEL]
 //!   static  -> as is                                           -> [B, STATIC_SIZE]
-//! concat -> Linear(WIDTH) -> ResBlocks -> heads:
-//!   type_logits [B,4]   fold / check-call / raise / all-in (masked outside)
-//!   size_params [B,2]   (mu, sigma) of the truncated normal over log pot-fraction
-//!   value       [B]     expected chip result / 200
+//! concat -> Linear(width) -> ResBlocks -> LN -> Linear(NUM_ACTIONS).
+//!
+//! The policy's head is the logits of the discrete actions (masked outside).
+//! The training-only critic (`NetCfg::CRITIC`) uses the same body plus a
+//! privileged input — every live opponent's hole cards (as planes), the
+//! mover's showdown equity against them, and the live-opponent count — and
+//! its head is Q(s, a) per action (expected chip result / 200).
 
 use tch::nn::{self, Module};
 use tch::{Device, Kind, Tensor};
 
+use poker_core::actions::NUM_ACTIONS;
 use poker_core::encode::{CARD_SLOTS, HIST_OFFSET, HIST_TOKENS, INPUT_SIZE, STATIC_OFFSET, STATIC_SIZE, TOKEN_FEATS};
 
 use crate::onnx::{Attr, Dim, Graph, FLOAT, INT64};
@@ -30,14 +39,14 @@ pub const HEAD_DIM: i64 = D_MODEL / N_HEADS;
 pub const FFN: i64 = 256;
 pub const N_HIST_LAYERS: usize = 2;
 pub const N_READOUT: i64 = 4;
-pub const WIDTH: i64 = 512;
-pub const N_BLOCKS: usize = 4;
-pub const VALUE_HIDDEN: i64 = 256;
-pub const SIGMA_MIN: f64 = 0.05;
-pub const SIGMA_MAX: f64 = 1.5;
-/// Initial raise size center (pot fraction) and spread.
-pub const MU_INIT: f64 = 0.6;
-pub const SIGMA_INIT: f64 = 0.6;
+pub const D_PLANES: i64 = 256;
+/// 6 planes of 52 + (13 rank + 4 suit counts) for hole, board, all.
+const PLANE_IN: i64 = 6 * 52 + 3 * 17;
+/// Privileged critic input: 5 opponent seats x 2 card slots (canonical index,
+/// NO_CARD if empty), equity vs them, live opponents / 5.
+pub const PRIV_SIZE: usize = 12;
+const PRIV_IN: i64 = 5 * 52 + 52 + 2;
+pub const D_PRIV: i64 = 256;
 const MASK_NEG: f64 = 1e9;
 const T: i64 = HIST_TOKENS as i64;
 const NO_CARD: i64 = 52;
@@ -218,12 +227,12 @@ struct ResBlock {
 }
 
 impl ResBlock {
-    fn new(p: nn::Path) -> Self {
+    fn new(p: nn::Path, w: i64) -> Self {
         ResBlock {
-            ln1: LN::new(&p / "ln1", WIDTH),
-            fc1: Lin::new(&p / "fc1", WIDTH, WIDTH),
-            ln2: LN::new(&p / "ln2", WIDTH),
-            fc2: Lin::new(&p / "fc2", WIDTH, WIDTH),
+            ln1: LN::new(&p / "ln1", w),
+            fc1: Lin::new(&p / "fc1", w, w),
+            ln2: LN::new(&p / "ln2", w),
+            fc2: Lin::new(&p / "fc2", w, w),
         }
     }
     fn fwd(&self, x: &Tensor) -> Tensor {
@@ -244,85 +253,111 @@ impl ResBlock {
 
 // ---- the network ----------------------------------------------------------------
 
-pub struct NetOutput {
-    pub type_logits: Tensor, // [B,4]
-    pub size_params: Tensor, // [B,2] (mu, sigma)
-    pub value: Tensor,       // [B]
+#[derive(Clone, Copy)]
+pub struct NetCfg {
+    pub width: i64,
+    pub blocks: usize,
+    pub privileged: bool,
+}
+
+impl NetCfg {
+    pub const POLICY: NetCfg = NetCfg { width: 512, blocks: 4, privileged: false };
+    pub const CRITIC: NetCfg = NetCfg { width: 384, blocks: 3, privileged: true };
 }
 
 pub struct PokerNet {
+    cfg: NetCfg,
     card_emb: Embed,
     rank_emb: Embed,
     suit_emb: Embed,
+    /// [53, 52]: one-hot rows for the 52 cards, zeros for NO_CARD (a constant).
+    plane_tbl: Tensor,
+    planes_fc: Lin,
     tok_proj: Lin,
     hist_pos: Tensor,
     hist_layers: Vec<HistLayer>,
     hist_ln: LN,
     readout_q: Tensor,
+    priv_fc: Option<Lin>,
     stem: Lin,
     blocks: Vec<ResBlock>,
-    type_ln: LN,
-    type_fc: Lin,
-    size_ln: LN,
-    size_fc: Lin,
-    value_ln: LN,
-    value_fc1: Lin,
-    value_fc2: Lin,
+    head_ln: LN,
+    head_fc: Lin,
 }
 
-const TRUNK_IN: i64 = STATIC_SIZE as i64 + 4 * D_CARD + (N_READOUT + 2) * D_MODEL;
+/// Initial policy-logit biases: fold, check/call, min-raise, six pot-fraction
+/// sizes, all-in. The sizes share a raise's prior mass, and all-in starts
+/// unlikely, so the untrained policy neither raises nor shoves most of the time.
+const ACTION_BIAS_INIT: [f64; NUM_ACTIONS] = [0.0, 0.5, -1.0, -1.8, -1.8, -1.8, -1.8, -1.8, -1.8, -2.5];
 
-/// Initial type-logit biases: fold, check/call, raise, all-in. All-in starts
-/// unlikely so the untrained policy doesn't shove a third of the time.
-const TYPE_BIAS_INIT: [f64; 4] = [0.0, 0.5, 0.0, -1.5];
+fn plane_table(dev: Device) -> Tensor {
+    Tensor::cat(&[Tensor::eye(52, (Kind::Float, dev)), Tensor::zeros([1, 52], (Kind::Float, dev))], 0)
+}
+
+/// [B, 52] multi-hot planes -> rank counts [B,13] and suit counts [B,4].
+fn counts(p: &Tensor) -> (Tensor, Tensor) {
+    let m = p.view([-1, 4, 13]);
+    (m.sum_dim_intlist(1, false, Kind::Float), m.sum_dim_intlist(2, false, Kind::Float))
+}
+
+fn emit_counts(g: &mut Graph, p: &str) -> (String, String) {
+    let m = emit_reshape(g, p, &[-1, 4, 13]);
+    (emit_reduce_sum(g, &m, 1, false), emit_reduce_sum(g, &m, 2, false))
+}
 
 impl PokerNet {
-    pub fn new(vs: &nn::Path) -> Self {
+    pub fn new(vs: &nn::Path, cfg: NetCfg) -> Self {
+        let w = cfg.width;
+        let trunk_in = STATIC_SIZE as i64 + 4 * D_CARD + D_PLANES + (N_READOUT + 2) * D_MODEL + if cfg.privileged { D_PRIV } else { 0 };
         let net = PokerNet {
+            cfg,
             card_emb: Embed::new(vs / "card_emb", NO_CARD + 1, D_CARD),
             rank_emb: Embed::new(vs / "rank_emb", 13, D_CARD),
             suit_emb: Embed::new(vs / "suit_emb", 4, D_CARD),
+            plane_tbl: plane_table(vs.device()),
+            planes_fc: Lin::new(vs / "planes_fc", PLANE_IN, D_PLANES),
             tok_proj: Lin::new(vs / "tok_proj", TOKEN_FEATS as i64, D_MODEL),
             hist_pos: vs.var("hist_pos", &[T, D_MODEL], nn::Init::Randn { mean: 0.0, stdev: 0.02 }),
             hist_layers: (0..N_HIST_LAYERS).map(|i| HistLayer::new(vs / "hist_layers" / i)).collect(),
             hist_ln: LN::new(vs / "hist_ln", D_MODEL),
             readout_q: vs.var("readout_q", &[N_READOUT, D_MODEL], nn::Init::Randn { mean: 0.0, stdev: 0.02 }),
-            stem: Lin::new(vs / "stem", TRUNK_IN, WIDTH),
-            blocks: (0..N_BLOCKS).map(|i| ResBlock::new(vs / "blocks" / i)).collect(),
-            type_ln: LN::new(vs / "type_ln", WIDTH),
-            type_fc: Lin::new(vs / "type_fc", WIDTH, 4),
-            size_ln: LN::new(vs / "size_ln", WIDTH),
-            size_fc: Lin::new(vs / "size_fc", WIDTH, 2),
-            value_ln: LN::new(vs / "value_ln", WIDTH),
-            value_fc1: Lin::new(vs / "value_fc1", WIDTH, VALUE_HIDDEN),
-            value_fc2: Lin::new(vs / "value_fc2", VALUE_HIDDEN, 1),
+            priv_fc: cfg.privileged.then(|| Lin::new(vs / "priv_fc", PRIV_IN, D_PRIV)),
+            stem: Lin::new(vs / "stem", trunk_in, w),
+            blocks: (0..cfg.blocks).map(|i| ResBlock::new(vs / "blocks" / i, w)).collect(),
+            head_ln: LN::new(vs / "head_ln", w),
+            head_fc: Lin::new(vs / "head_fc", w, NUM_ACTIONS as i64),
         };
-        // Heads start near their biases: a mild preference among action types,
-        // raises centered on MU_INIT pot with spread SIGMA_INIT.
+        // The head starts near its bias: the policy at ACTION_BIAS_INIT, the
+        // critic's Q at 0.
         tch::no_grad(|| {
-            let dev = net.type_fc.0.ws.device();
-            let mut tw = net.type_fc.0.ws.shallow_clone();
-            let _ = tw.f_mul_scalar_(0.01).unwrap();
-            let mut sw = net.size_fc.0.ws.shallow_clone();
-            let _ = sw.f_mul_scalar_(0.01).unwrap();
-            let mut tb = net.type_fc.0.bs.as_ref().unwrap().shallow_clone();
-            tb.copy_(&Tensor::from_slice(&TYPE_BIAS_INIT).to_kind(Kind::Float).to_device(dev));
-            let frac = (SIGMA_INIT - SIGMA_MIN) / (SIGMA_MAX - SIGMA_MIN);
-            let sb_init = [MU_INIT.ln(), (frac / (1.0 - frac)).ln()];
-            let mut sb = net.size_fc.0.bs.as_ref().unwrap().shallow_clone();
-            sb.copy_(&Tensor::from_slice(&sb_init).to_kind(Kind::Float).to_device(dev));
+            let dev = net.head_fc.0.ws.device();
+            let mut hw = net.head_fc.0.ws.shallow_clone();
+            let _ = hw.f_mul_scalar_(0.01).unwrap();
+            let bias: Vec<f64> = if cfg.privileged { vec![0.0; NUM_ACTIONS] } else { ACTION_BIAS_INIT.to_vec() };
+            let mut hb = net.head_fc.0.bs.as_ref().unwrap().shallow_clone();
+            hb.copy_(&Tensor::from_slice(&bias).to_kind(Kind::Float).to_device(dev));
         });
         net
     }
 
-    /// Size-head affine constants: params = raw * M + C0 + C1 * sigmoid(raw),
-    /// i.e. mu = raw0, sigma = SIGMA_MIN + (SIGMA_MAX - SIGMA_MIN) * sigmoid(raw1).
-    fn size_consts() -> ([f32; 2], [f32; 2], [f32; 2]) {
-        ([1.0, 0.0], [0.0, SIGMA_MIN as f32], [0.0, (SIGMA_MAX - SIGMA_MIN) as f32])
+    /// Policy logits [B, NUM_ACTIONS] (unmasked).
+    pub fn forward(&self, x: &Tensor) -> Tensor {
+        assert!(!self.cfg.privileged, "critic needs forward_priv");
+        self.body(x, None)
     }
 
-    pub fn forward(&self, x: &Tensor) -> NetOutput {
-        let dev = x.device();
+    /// Critic Q values [B, NUM_ACTIONS]; `p` is the [B, PRIV_SIZE] privileged input.
+    pub fn forward_priv(&self, x: &Tensor, p: &Tensor) -> Tensor {
+        assert!(self.cfg.privileged);
+        self.body(x, Some(p))
+    }
+
+    fn planes(&self, idx: &Tensor) -> Tensor {
+        let n = idx.size()[1];
+        self.plane_tbl.index_select(0, &idx.reshape([-1])).view([-1, n, 52])
+    }
+
+    fn body(&self, x: &Tensor, p: Option<&Tensor>) -> Tensor {
         // --- cards ---
         let idx = x.narrow(1, 0, CARD_SLOTS as i64).to_kind(Kind::Int64); // [B,7]
         let dealt = idx.lt(NO_CARD).to_kind(Kind::Float).unsqueeze(-1);
@@ -331,6 +366,17 @@ impl PokerNet {
         let e = (self.card_emb.fwd(&idx) + self.rank_emb.fwd(&rank) + self.suit_emb.fwd(&suit)) * dealt;
         let group = |s: i64, n: i64| e.narrow(1, s, n).sum_dim_intlist(1, false, Kind::Float);
         let cards = Tensor::cat(&[group(0, 2), group(2, 3), group(5, 1), group(6, 1)], 1);
+
+        let oh = self.planes(&idx); // [B,7,52]
+        let pg = |s: i64, n: i64| oh.narrow(1, s, n).sum_dim_intlist(1, false, Kind::Float);
+        let (hole, flop, turn, river) = (pg(0, 2), pg(2, 3), pg(5, 1), pg(6, 1));
+        let board = &flop + &turn + &river;
+        let all = &hole + &board;
+        let (hr, hs) = counts(&hole);
+        let (br, bs) = counts(&board);
+        let (ar, asu) = counts(&all);
+        let planes = Tensor::cat(&[&hole, &flop, &turn, &river, &board, &all, &hr, &hs, &br, &bs, &ar, &asu], 1);
+        let planes = gelu(&self.planes_fc.fwd(&planes));
 
         // --- history ---
         let tok = x.narrow(1, HIST_OFFSET as i64, T * TOKEN_FEATS as i64).view([-1, T, TOKEN_FEATS as i64]);
@@ -354,32 +400,29 @@ impl PokerNet {
 
         // --- trunk ---
         let stat = x.narrow(1, STATIC_OFFSET as i64, STATIC_SIZE as i64);
-        let mut t = self.stem.fwd(&Tensor::cat(&[stat, cards, pooled], 1));
+        let mut parts = vec![stat, cards, planes, pooled];
+        if let (Some(fc), Some(p)) = (&self.priv_fc, p) {
+            let oidx = p.narrow(1, 0, 10).to_kind(Kind::Int64);
+            let opp = self.planes(&oidx).view([-1, 5, 2, 52]).sum_dim_intlist(2, false, Kind::Float); // [B,5,52]
+            let any_opp = opp.sum_dim_intlist(1, false, Kind::Float);
+            let pin = Tensor::cat(&[opp.view([-1, 5 * 52]), any_opp, p.narrow(1, 10, 2)], 1);
+            parts.push(gelu(&fc.fwd(&pin)));
+        }
+        let mut t = self.stem.fwd(&Tensor::cat(&parts, 1));
         for b in &self.blocks {
             t = b.fwd(&t);
         }
-
-        // --- heads ---
-        let type_logits = self.type_fc.fwd(&self.type_ln.fwd(&t));
-        let raw = self.size_fc.fwd(&self.size_ln.fwd(&t));
-        let (m, c0, c1) = Self::size_consts();
-        let f = |a: [f32; 2]| Tensor::from_slice(&a).to_device(dev);
-        let size_params = &raw * f(m) + f(c0) + f(c1) * raw.sigmoid();
-        let value = self
-            .value_fc2
-            .fwd(&gelu(&self.value_fc1.fwd(&self.value_ln.fwd(&t))))
-            .view([-1]);
-        NetOutput { type_logits, size_params, value }
+        self.head_fc.fwd(&self.head_ln.fwd(&t))
     }
 
-    /// Serialize the network (current weights) as a self-contained ONNX model:
-    /// input "input" [batch, INPUT_SIZE]; outputs "type_logits" [batch,4],
-    /// "size_params" [batch,2], "value" [batch].
+    /// Serialize the policy (current weights) as a self-contained ONNX model:
+    /// input "input" [batch, INPUT_SIZE]; output "logits" [batch, NUM_ACTIONS].
     pub fn export_onnx(&self) -> Vec<u8> {
+        assert!(!self.cfg.privileged, "only the policy is exported");
         let mut g = Graph::new();
         let x = g.input("input", FLOAT, &[Dim::Named("batch"), Dim::Fixed(INPUT_SIZE as i64)]);
 
-        // --- cards ---
+        // --- cards: embeddings ---
         let cf = emit_slice(&mut g, &x, 1, 0, CARD_SLOTS as i64);
         let idx = g.node("Cast", &[&cf], &[Attr::Int("to", INT64)]);
         let lim = g.scalar_f32(NO_CARD as f32 - 0.5);
@@ -404,6 +447,28 @@ impl PokerNet {
         }
         let gref: Vec<&str> = groups.iter().map(String::as_str).collect();
         let cards = g.node("Concat", &gref, &[Attr::Int("axis", 1)]);
+
+        // --- cards: planes ---
+        let tbl = emit_tensor(&mut g, "plane_tbl", &self.plane_tbl);
+        let oh = g.node("Gather", &[&tbl, &idx], &[Attr::Int("axis", 0)]); // [B,7,52]
+        let mut pgs = Vec::new();
+        for (s, n) in [(0, 2), (2, 3), (5, 1), (6, 1)] {
+            let sl = emit_slice(&mut g, &oh, 1, s, s + n);
+            pgs.push(emit_reduce_sum(&mut g, &sl, 1, false));
+        }
+        let board = g.node("Add", &[&pgs[1], &pgs[2]], &[]);
+        let board = g.node("Add", &[&board, &pgs[3]], &[]);
+        let all = g.node("Add", &[&pgs[0], &board], &[]);
+        let (hr, hs) = emit_counts(&mut g, &pgs[0]);
+        let (br, bs) = emit_counts(&mut g, &board);
+        let (ar, asu) = emit_counts(&mut g, &all);
+        let planes = g.node(
+            "Concat",
+            &[&pgs[0], &pgs[1], &pgs[2], &pgs[3], &board, &all, &hr, &hs, &br, &bs, &ar, &asu],
+            &[Attr::Int("axis", 1)],
+        );
+        let planes = self.planes_fc.emit(&mut g, &planes);
+        let planes = emit_gelu(&mut g, &planes);
 
         // --- history ---
         let tok = emit_slice(&mut g, &x, 1, HIST_OFFSET as i64, HIST_OFFSET as i64 + T * TOKEN_FEATS as i64);
@@ -448,39 +513,17 @@ impl PokerNet {
 
         // --- trunk ---
         let stat = emit_slice(&mut g, &x, 1, STATIC_OFFSET as i64, INPUT_SIZE as i64);
-        let tin = g.node("Concat", &[&stat, &cards, &pooled], &[Attr::Int("axis", 1)]);
+        let tin = g.node("Concat", &[&stat, &cards, &planes, &pooled], &[Attr::Int("axis", 1)]);
         let mut t = self.stem.emit(&mut g, &tin);
         for b in &self.blocks {
             t = b.emit(&mut g, &t);
         }
 
-        // --- heads ---
-        let tl = self.type_ln.emit(&mut g, &t);
-        let tl = self.type_fc.emit(&mut g, &tl);
-        g.node_named("Identity", &[&tl], &[], "type_logits");
-
-        let sl = self.size_ln.emit(&mut g, &t);
-        let raw = self.size_fc.emit(&mut g, &sl);
-        let (m, c0, c1) = Self::size_consts();
-        let m = g.init_f32("size_m", &[2], &m);
-        let c0 = g.init_f32("size_c0", &[2], &c0);
-        let c1 = g.init_f32("size_c1", &[2], &c1);
-        let a = g.node("Mul", &[&raw, &m], &[]);
-        let a = g.node("Add", &[&a, &c0], &[]);
-        let sg = g.node("Sigmoid", &[&raw], &[]);
-        let sg = g.node("Mul", &[&sg, &c1], &[]);
-        g.node_named("Add", &[&a, &sg], &[], "size_params");
-
-        let v = self.value_ln.emit(&mut g, &t);
-        let v = self.value_fc1.emit(&mut g, &v);
-        let v = emit_gelu(&mut g, &v);
-        let v = self.value_fc2.emit(&mut g, &v);
-        let shape = g.init_i64("shape", &[1], &[-1]);
-        g.node_named("Reshape", &[&v, &shape], &[], "value");
-
-        g.output("type_logits", FLOAT, &[Dim::Named("batch"), Dim::Fixed(4)]);
-        g.output("size_params", FLOAT, &[Dim::Named("batch"), Dim::Fixed(2)]);
-        g.output("value", FLOAT, &[Dim::Named("batch")]);
+        // --- head ---
+        let hl = self.head_ln.emit(&mut g, &t);
+        let hl = self.head_fc.emit(&mut g, &hl);
+        g.node_named("Identity", &[&hl], &[], "logits");
+        g.output("logits", FLOAT, &[Dim::Named("batch"), Dim::Fixed(NUM_ACTIONS as i64)]);
         g.model_bytes(OPSET)
     }
 }

@@ -1,9 +1,9 @@
-// onnxruntime-web session for the poker policy/value net. Lazily loads
+// onnxruntime-web session for the poker policy net. Lazily loads
 // /models/current.onnx on first use and caches the session; tries WebGPU,
 // falls back to WASM (same pattern as fox-lite / chess-ai-engine).
 //
 //   await loadModel(source?)      // optional pre-warm (URL or model bytes)
-//   await evaluate(inputF32)      // -> { typeLogits, size: [mu, sigma], value }
+//   await evaluate(inputF32)      // -> logits over the NUM_ACTIONS discrete actions
 
 import * as ort from "onnxruntime-web";
 
@@ -41,21 +41,9 @@ export function loadModel(
   return sessionPromise;
 }
 
-export interface NetOutput {
-  typeLogits: Float32Array; // fold, check/call, raise, all-in
-  mu: number; // raise size center (log pot-fraction)
-  sigma: number;
-  value: number;
-}
-
-export async function evaluate(x: Float32Array): Promise<NetOutput> {
+// Policy logits, one per discrete action (see actions.ts), unmasked.
+export async function evaluate(x: Float32Array): Promise<Float32Array> {
   const session = await loadModel();
   const out = await session.run({ input: new ort.Tensor("float32", x, [1, INPUT_SIZE]) });
-  const size = out.size_params.data as Float32Array;
-  return {
-    typeLogits: out.type_logits.data as Float32Array,
-    mu: size[0],
-    sigma: size[1],
-    value: (out.value.data as Float32Array)[0],
-  };
+  return out.logits.data as Float32Array;
 }

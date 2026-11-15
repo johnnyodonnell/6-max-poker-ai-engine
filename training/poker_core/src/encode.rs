@@ -31,27 +31,53 @@ fn ordered(cards: &[Card]) -> Vec<Card> {
     v
 }
 
-/// Canonical card indices (hole 2, flop 3, turn, river), NO_CARD-padded.
-pub fn canonical_cards(hole: &[Card], community: &[Card]) -> [f32; CARD_SLOTS] {
+/// The groups a player's cards are canonicalized in: hole (sorted), flop
+/// (sorted), turn, river.
+fn card_groups(hole: &[Card], community: &[Card]) -> [Vec<Card>; 4] {
     let n = community.len();
-    let groups: [Vec<Card>; 4] = [
+    [
         ordered(hole),
         ordered(&community[..n.min(3)]),
         community[n.min(3)..n.min(4)].to_vec(),
         community[n.min(4)..n.min(5)].to_vec(),
-    ];
+    ]
+}
+
+/// Canonical suit relabeling: suits numbered by first appearance (hole cards,
+/// then flop, turn, river). Unseen suits map to u8::MAX.
+pub fn suit_map(hole: &[Card], community: &[Card]) -> [u8; 4] {
     let mut map = [u8::MAX; 4];
     let mut next = 0u8;
-    let mut out = [NO_CARD; CARD_SLOTS];
-    let starts = [0, 2, 5, 6];
-    for (g, cards) in groups.iter().enumerate() {
-        for (j, &c) in cards.iter().enumerate() {
+    for cards in card_groups(hole, community).iter() {
+        for &c in cards {
             let su = suit(c) as usize;
             if map[su] == u8::MAX {
                 map[su] = next;
                 next += 1;
             }
-            out[starts[g] + j] = (map[su] as u32 * 13 + (rank(c) as u32 - 2)) as f32;
+        }
+    }
+    map
+}
+
+/// Canonical index of `c` under `map`, giving still-unseen suits the next free
+/// labels (for cards the player can't see, e.g. a training-only critic input).
+pub fn canonical_index(c: Card, map: &mut [u8; 4]) -> f32 {
+    let su = suit(c) as usize;
+    if map[su] == u8::MAX {
+        map[su] = map.iter().filter(|&&m| m != u8::MAX).count() as u8;
+    }
+    (map[su] as u32 * 13 + (rank(c) as u32 - 2)) as f32
+}
+
+/// Canonical card indices (hole 2, flop 3, turn, river), NO_CARD-padded.
+pub fn canonical_cards(hole: &[Card], community: &[Card]) -> [f32; CARD_SLOTS] {
+    let mut map = suit_map(hole, community);
+    let mut out = [NO_CARD; CARD_SLOTS];
+    let starts = [0, 2, 5, 6];
+    for (g, cards) in card_groups(hole, community).iter().enumerate() {
+        for (j, &c) in cards.iter().enumerate() {
+            out[starts[g] + j] = canonical_index(c, &mut map);
         }
     }
     out

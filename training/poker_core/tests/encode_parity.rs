@@ -4,7 +4,7 @@
 
 mod common;
 
-use poker_core::actions::raise_to_for;
+use poker_core::actions::NUM_ACTIONS;
 use poker_core::cards::parse;
 use poker_core::encode::{encode, INPUT_SIZE};
 use poker_core::rules::{Action, ActionType, State};
@@ -66,9 +66,11 @@ fn encodings_match_typescript() {
                         assert_eq!(sp.max_raise_to as f64, f(&w["maxRaiseTo"]), "{at}");
                         assert!((sp.s_lo - f(&w["sLo"])).abs() < 1e-9, "{at}: sLo");
                         assert!((sp.s_hi - f(&w["sHi"])).abs() < 1e-9, "{at}: sHi");
-                        for pair in e["sizes"].as_array().unwrap() {
-                            assert_eq!(raise_to_for(&sp, f(&pair[0])) as f64, f(&pair[1]), "{at}: size");
-                        }
+                        let amask: Vec<f32> = w["amask"].as_array().unwrap().iter().map(|v| f(v) as f32).collect();
+                        assert_eq!(sp.amask.to_vec(), amask, "{at}: amask");
+                        let amounts: Vec<i32> = w["amounts"].as_array().unwrap().iter().map(|v| f(v) as i32).collect();
+                        assert_eq!(sp.amounts.to_vec(), amounts, "{at}: amounts");
+                        assert_eq!(amounts.len(), NUM_ACTIONS);
                         checked += 1;
                     }
                     let a = &ev["action"];
