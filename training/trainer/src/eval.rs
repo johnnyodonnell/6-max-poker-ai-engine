@@ -7,9 +7,10 @@
 //! seats), and results are all-in-EV adjusted, which cuts card luck a lot.
 //! Neural agents sample from the policy, as the browser bot does.
 //!
-//! The ladder fits ratings to the pairwise bb/100 results by least squares
-//! (rating(a) - rating(b) ~ bb/100 of a vs b), with random pinned at 0 — the
-//! multiplayer stand-in for fox-lite's Bradley–Terry Elo. Each new snapshot
+//! The ladder fits ratings to the snapshot-vs-snapshot bb/100 results by least
+//! squares (rating(a) - rating(b) ~ bb/100 of a vs b), with the first snapshot
+//! pinned at 0 — the multiplayer stand-in for fox-lite's Bradley–Terry Elo.
+//! bb/100 vs random is reported separately (`vs_random`). Each new snapshot
 //! plays random, the top `--n-top` rated snapshots, and `--n-anchors`
 //! snapshots spread across the rating range.
 //!
@@ -181,24 +182,36 @@ fn load_pool(path: &Path) -> Value {
     std::fs::read_to_string(path)
         .ok()
         .and_then(|s| serde_json::from_str(&s).ok())
-        .unwrap_or_else(|| json!({"models": {RANDOM: {"rating": 0.0}}, "results": []}))
+        .unwrap_or_else(|| json!({"models": {RANDOM: {}}, "results": []}))
 }
 
-/// Least-squares ratings from pairwise bb/100 (Gauss-Seidel), random = 0.
+/// Least-squares ratings from snapshot-vs-snapshot bb/100 (Gauss-Seidel), with
+/// the earliest snapshot pinned at 0. Results against random are left out of
+/// the fit: beating random maniacs is a different skill (a tight, sound
+/// policy wins *less* against them than a loose one), so mixing them in can
+/// rank a weaker snapshot first. Each model's bb/100 vs random is kept as
+/// `vs_random` instead.
 fn refit(pool: &mut Value) {
-    let names: Vec<String> = pool["models"].as_object().unwrap().keys().cloned().collect();
-    let results: Vec<(String, String, f64)> = pool["results"]
+    let mut names: Vec<String> =
+        pool["models"].as_object().unwrap().keys().filter(|k| k.as_str() != RANDOM).cloned().collect();
+    names.sort(); // snap_hHHHHH_cCCCCCC: chronological
+    let all: Vec<(String, String, f64)> = pool["results"]
         .as_array()
         .unwrap()
         .iter()
         .map(|r| (r["a"].as_str().unwrap().to_string(), r["b"].as_str().unwrap().to_string(), r["bb100"].as_f64().unwrap()))
         .collect();
+    let mut results: Vec<(String, String, f64)> = Vec::new();
+    for (a, b, y) in all {
+        if b == RANDOM {
+            pool["models"][&a]["vs_random"] = json!(y);
+        } else if a != RANDOM {
+            results.push((a, b, y));
+        }
+    }
     let mut rating: std::collections::HashMap<String, f64> = names.iter().map(|n| (n.clone(), 0.0)).collect();
     for _ in 0..500 {
-        for n in &names {
-            if n == RANDOM {
-                continue;
-            }
+        for n in names.iter().skip(1) {
             let (mut num, mut den) = (0.0, 0.0);
             for (a, b, y) in &results {
                 if a == n {
@@ -216,6 +229,9 @@ fn refit(pool: &mut Value) {
     }
     for n in &names {
         pool["models"][n]["rating"] = json!((rating[n] * 10.0).round() / 10.0);
+    }
+    if let Some(m) = pool["models"].get_mut(RANDOM) {
+        m.as_object_mut().unwrap().remove("rating");
     }
 }
 
@@ -288,10 +304,15 @@ pub fn evaluate(
         .as_object()
         .unwrap()
         .iter()
+        .filter(|(k, _)| k.as_str() != RANDOM)
         .map(|(k, v)| (k.clone(), v["rating"].as_f64().unwrap()))
         .collect();
     ladder.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap());
-    let top: Vec<String> = ladder.iter().take(5).map(|(k, r)| format!("{k}={r:+.1}")).collect();
+    let top: Vec<String> = ladder
+        .iter()
+        .take(5)
+        .map(|(k, r)| format!("{k}={r:+.1} (vs random {:+.0})", pool["models"][k]["vs_random"].as_f64().unwrap_or(0.0)))
+        .collect();
     println!("[eval] ladder: {}", top.join("  "));
     std::fs::write(&pool_path, serde_json::to_string_pretty(&pool).unwrap()).expect("write pool.json");
     vs_prev
@@ -353,7 +374,8 @@ pub fn match_cmd(args: &[String]) {
 /// `poker best --run-dir DIR`: print the path of the top-rated snapshot.
 pub fn best_cmd(args: &[String]) {
     let run_dir = flag(args, "--run-dir").expect("--run-dir");
-    let pool = load_pool(&Path::new(&run_dir).join("pool.json"));
+    let mut pool = load_pool(&Path::new(&run_dir).join("pool.json"));
+    refit(&mut pool);
     let best = pool["models"]
         .as_object()
         .unwrap()

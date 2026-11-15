@@ -89,7 +89,10 @@ Each snapshot is evaluated automatically and recorded in
 `runs/<run>/pool.json`. A match puts the candidate in one seat against five
 copies of the random bot or of an earlier snapshot. Each deal is replayed with
 the candidate in all six seats, with all-in EV applied. Ratings are
-least-squares fits of bb/100, with random pinned at 0.
+least-squares fits of snapshot-vs-snapshot bb/100, with the first snapshot
+pinned at 0. Results against random are reported separately (`vs_random`) and
+left out of the fit: a sound, tight policy wins *less* against random maniacs
+than a loose one does, so they would distort the ranking.
 
 ```sh
 poker match --a <snap>.safetensors --b random --deals 2000   # ad hoc, on the box

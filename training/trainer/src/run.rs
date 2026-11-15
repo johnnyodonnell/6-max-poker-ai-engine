@@ -10,7 +10,7 @@
 //!   poker train --run-dir ~/Workspace/6-max-poker-ai-engine/runs/run1
 //!       [--cohort-rows 131072] [--slots 4096] [--micro-batch 8192]
 //!       [--lr 3e-4] [--warmup 100] [--weight-decay 1e-4] [--c-value 1.0] [--c-entropy 0.01]
-//!       [--c-sigma 0.01] [--grad-clip 1.0] [--snapshot-every DURATION]
+//!       [--c-sigma 0.001] [--grad-clip 1.0] [--snapshot-every DURATION]
 //!       [--seed 42] [--max-cohorts 0]
 //!
 //! Snapshot schedule: every 30 minutes at first. After two snapshots in a row
@@ -89,7 +89,7 @@ pub fn train(args: &[String]) {
         weight_decay: num(args, "--weight-decay", 1e-4),
         c_value: num(args, "--c-value", 1.0),
         c_entropy: num(args, "--c-entropy", 0.01),
-        c_sigma: num(args, "--c-sigma", 0.01),
+        c_sigma: num(args, "--c-sigma", 0.001),
         grad_clip: num(args, "--grad-clip", 1.0),
         micro_batch: num(args, "--micro-batch", 8192),
     };
