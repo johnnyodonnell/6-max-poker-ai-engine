@@ -15,7 +15,7 @@
 //!       [--lr 1e-4] [--critic-lr 3e-4] [--warmup 20] [--beta2 0.99]
 //!       [--weight-decay 1e-4] [--c-entropy 0.01] [--c-anchor 0.05]
 //!       [--clip 0.2] [--target-kl 0.02] [--cv all|fold|none] [--grad-clip 1.0]
-//!       [--snapshot-every DURATION] [--seed 42] [--max-cohorts 0]
+//!       [--snapshot-every 4h] [--seed 42] [--max-cohorts 0]
 //!
 //! Anchor: the policy is pulled (forward KL) toward an anchor policy — at
 //! first the initial weights, then the latest snapshot that significantly beat
@@ -27,9 +27,7 @@
 //! minibatch steps, between --cohort-rows and --max-cohort-rows): updates
 //! stay mostly signal as the policy improves and its gradients get noisier.
 //!
-//! Snapshot schedule: every 30 minutes at first. After two snapshots in a row
-//! significantly beat their predecessor, the interval steps up to 1 hour, then
-//! likewise to 4 hours. `--snapshot-every` fixes the interval instead.
+//! Snapshots: every --snapshot-every of training time (default 4 hours).
 //!
 //! Resumes from <run-dir>/latest.* if present.
 
@@ -62,10 +60,6 @@ where
     flag(args, key).map(|v| v.parse().unwrap()).unwrap_or(default)
 }
 
-/// Snapshot intervals, in seconds: 30m -> 1h -> 4h.
-const SCHEDULE: [f64; 3] = [1800.0, 3600.0, 14400.0];
-/// Consecutive significant improvements needed to step up the interval.
-const STEP_UP_AFTER: u32 = 2;
 /// Noise-scale EMA weight of the newest cohort.
 const NOISE_EMA: f64 = 0.05;
 pub const INIT_ANCHOR: &str = "init";
@@ -77,9 +71,6 @@ struct Meta {
     hands: u64,
     rows: u64,
     next_snapshot_at: f64,
-    interval_idx: usize,
-    /// Consecutive snapshots that significantly beat their predecessor.
-    improve_streak: u32,
     last_snapshot: Option<String>,
     /// INIT_ANCHOR or a snapshot name.
     anchor: String,
@@ -101,10 +92,7 @@ pub fn train(args: &[String]) {
     let seed: u64 = num(args, "--seed", 42);
     let max_cohorts: u64 = num(args, "--max-cohorts", 0);
     let warmup: u64 = num(args, "--warmup", 20);
-    let fixed_every = flag(args, "--snapshot-every").map(|s| parse_duration(&s));
-    // Shrinks the whole schedule (testing only: e.g. 0.01 -> 18s / 36s / 144s).
-    let scale: f64 = num(args, "--schedule-scale", 1.0);
-    let interval = |m: &Meta| fixed_every.unwrap_or(SCHEDULE[m.interval_idx.min(SCHEDULE.len() - 1)] * scale);
+    let every = parse_duration(&flag(args, "--snapshot-every").unwrap_or("4h".into()));
     let cv = match flag(args, "--cv").as_deref().unwrap_or("all") {
         "all" => ControlVariate::All,
         "fold" => ControlVariate::Fold,
@@ -143,7 +131,7 @@ pub fn train(args: &[String]) {
     let mut popt = AdamW::new(&pvs, 0.9, cfg.beta2);
     let mut copt = AdamW::new(&cvs, 0.9, cfg.beta2);
     let mut meta = Meta {
-        next_snapshot_at: interval(&Meta::default()),
+        next_snapshot_at: every,
         anchor: INIT_ANCHOR.into(),
         cohort_rows: min_rows,
         ..Default::default()
@@ -221,7 +209,7 @@ pub fn train(args: &[String]) {
         copt.save(&p("latest_critic_opt.tmp.safetensors"));
         let mut snapshot = None;
         if meta.elapsed_sec >= meta.next_snapshot_at {
-            meta.next_snapshot_at = meta.elapsed_sec + interval(&meta);
+            meta.next_snapshot_at = meta.elapsed_sec + every;
             let name = format!("snap_h{:05}_c{:07}.safetensors", (meta.elapsed_sec / 3600.0) as u64, meta.cohorts);
             let path = dir.join("snapshots").join(&name);
             pvs.save(&path).expect("save snapshot");
@@ -277,25 +265,6 @@ pub fn train(args: &[String]) {
             }
             let res = crate::eval::after_snapshot(&run_dir, &path, &must, args);
             if !res.is_empty() {
-                // Snapshot schedule.
-                if let Some(prev) = &meta.last_snapshot {
-                    let improved = significant(res.get(prev));
-                    meta.improve_streak = if improved { meta.improve_streak + 1 } else { 0 };
-                    if let Some((bb, ci)) = res.get(prev) {
-                        println!(
-                            "[schedule] vs previous: {bb:+.1} ± {ci:.1} bb/100 ({}); streak {}",
-                            if improved { "improved" } else { "no significant improvement" },
-                            meta.improve_streak
-                        );
-                    }
-                    if fixed_every.is_none() && meta.improve_streak >= STEP_UP_AFTER && meta.interval_idx + 1 < SCHEDULE.len() {
-                        let snap_at = meta.next_snapshot_at - interval(&meta);
-                        meta.interval_idx += 1;
-                        meta.improve_streak = 0;
-                        meta.next_snapshot_at = snap_at + interval(&meta);
-                        println!("[schedule] snapshots now every {:.0} minutes", interval(&meta) / 60.0);
-                    }
-                }
                 // Anchor: replace it when the candidate significantly beats it.
                 let beats = if meta.anchor == INIT_ANCHOR {
                     significant(res.get(crate::eval::RANDOM))

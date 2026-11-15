@@ -113,11 +113,8 @@ cohort; run1 did 4M hands per hour with 1 step.
 
 ## Evaluate and promote
 
-Snapshots start every 30 minutes. An improvement counts as significant when a
-snapshot beats the previous one head to head by more than its 95% CI. After
-two significant improvements in a row, the interval steps up to 1 hour, then
-after two more to 4 hours. The schedule state is kept in `latest.json`.
-`--snapshot-every` fixes the interval instead.
+A snapshot is taken every 4 hours of training time (`--snapshot-every`, e.g.
+`1h` or `30m`, changes it).
 
 Each snapshot is probed (`[probe]` in the log; also `poker probe --weights
 W`). The probes check fold rates by preflop equity, how often pocket pairs
