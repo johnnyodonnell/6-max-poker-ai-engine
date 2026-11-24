@@ -7,3 +7,7 @@ pub mod classes;
 pub mod deal;
 pub mod menu;
 pub mod tree;
+pub mod mccfr;
+pub mod strategy;
+pub mod toy;
+pub mod eval;

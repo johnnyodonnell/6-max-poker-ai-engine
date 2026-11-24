@@ -41,3 +41,13 @@ pub fn log(msg: String) {
     let _ = writeln!(out, "[{:02}:{:02}:{:02}] {msg}", (t / 3600) % 24, (t / 60) % 60, t % 60);
     let _ = out.flush();
 }
+
+/// Resident memory of this process, GiB.
+pub fn rss_gib() -> f64 {
+    let s = std::fs::read_to_string("/proc/self/status").unwrap_or_default();
+    s.lines()
+        .find_map(|l| l.strip_prefix("VmRSS:"))
+        .and_then(|r| r.trim().trim_end_matches("kB").trim().parse::<f64>().ok())
+        .map(|kb| kb / (1u64 << 20) as f64)
+        .unwrap_or(0.0)
+}

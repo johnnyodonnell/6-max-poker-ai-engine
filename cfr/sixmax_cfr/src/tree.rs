@@ -114,6 +114,9 @@ pub struct Tree {
     pub buckets: [u32; 4],
     /// Total (information set, action) entries.
     pub n_entries: u64,
+    /// Entries are laid out street by street: street k's are
+    /// `street_start[k]..street_start[k + 1]` (so preflop's come first).
+    pub street_start: [u64; 5],
 }
 
 struct Builder<'a> {
@@ -155,20 +158,14 @@ pub fn build(players: usize, stack: i32, menu: &Menu, buckets: [u32; 4]) -> Tree
         terms: Vec::new(),
         buckets,
         n_entries: 0,
+        street_start: [0; 5],
     };
     let mut b = Builder { t, menu };
     let s = start_state(players, stack);
     let root = b.decision(s, 0);
     assert_eq!(root, 0);
     let mut t = b.t;
-    let mut off = 0u64;
-    for nd in t.nodes.iter_mut() {
-        if nd.player != TERMINAL {
-            nd.base = off;
-            off += t.buckets[nd.street as usize] as u64 * nd.n as u64;
-        }
-    }
-    t.n_entries = off;
+    t.finalize();
     t
 }
 
@@ -280,6 +277,22 @@ impl Builder<'_> {
 }
 
 impl Tree {
+    /// Give every decision node its block of entries, street by street.
+    pub fn finalize(&mut self) {
+        let mut off = 0u64;
+        for street in 0..4u8 {
+            self.street_start[street as usize] = off;
+            for nd in self.nodes.iter_mut() {
+                if nd.player != TERMINAL && nd.street == street {
+                    nd.base = off;
+                    off += self.buckets[street as usize] as u64 * nd.n as u64;
+                }
+            }
+        }
+        self.street_start[4] = off;
+        self.n_entries = off;
+    }
+
     #[inline]
     pub fn children(&self, nd: &Node) -> &[u32] {
         &self.child[nd.first as usize..nd.first as usize + nd.n as usize]

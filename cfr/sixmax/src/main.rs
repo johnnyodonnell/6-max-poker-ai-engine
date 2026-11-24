@@ -7,7 +7,11 @@
 //!       every (hand, board) has a card group; group sizes
 //!   tree --players 6|2 --stack CHIPS [--menu v1] [--buckets 169,200,200,200]
 //!       the size of a betting tree
+//!   train / export   (see train.rs)
+//!   eval / probe     (see play.rs)
 
+mod play;
+mod train;
 mod util;
 
 use std::time::Instant;
@@ -80,8 +84,12 @@ fn main() {
         Some("abstraction") => abstraction_cmd(&args),
         Some("tree") => tree_cmd(&args),
         Some("abscheck") => abscheck_cmd(&args),
+        Some("train") => train::train_cmd(&args),
+        Some("export") => train::export_cmd(&args),
+        Some("eval") => play::eval_cmd(&args),
+        Some("probe") => play::probe_cmd(&args),
         other => {
-            eprintln!("unknown subcommand {other:?}; expected: abstraction | abscheck | tree");
+            eprintln!("unknown subcommand {other:?}; expected: abstraction | abscheck | tree | train | export | eval | probe");
             std::process::exit(2);
         }
     }

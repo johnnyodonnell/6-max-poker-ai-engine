@@ -30,3 +30,46 @@ pub fn showdown(h0: [Card; 2], h1: [Card; 2], board: &[Card]) -> i8 {
     let v1 = eval7(&c);
     (v0.cmp(&v1) as i8).signum()
 }
+
+/// One deal as the solver sees it: each seat's card group on each street and
+/// its showdown strength (higher wins; compared among live seats only).
+#[derive(Clone, Copy, Debug, Default)]
+pub struct Deal {
+    pub bucket: [[u32; 4]; poker_core::rules::SEATS],
+    pub rank: [u32; poker_core::rules::SEATS],
+}
+
+/// Samples deals for the solver.
+pub trait Dealer: Sync {
+    fn deal(&self, rng: &mut SmallRng) -> Deal;
+}
+
+/// Real cards for `players` seats (6, or 2 for heads-up: seats 0 and 1) and a
+/// board, mapped to card groups.
+pub struct PokerDealer<'a> {
+    pub abs: &'a crate::abs::Abstraction,
+    pub players: usize,
+}
+
+impl Dealer for PokerDealer<'_> {
+    #[inline]
+    fn deal(&self, rng: &mut SmallRng) -> Deal {
+        let mut c = [0u8; 17];
+        let n = 2 * self.players + 5;
+        deal_cards(rng, &mut c[..n]);
+        let board = &c[2 * self.players..n];
+        let mut d = Deal::default();
+        let mut seven = [0u8; 7];
+        seven[2..].copy_from_slice(board);
+        for p in 0..self.players {
+            let hole = [c[2 * p], c[2 * p + 1]];
+            for s in 0..4 {
+                d.bucket[p][s] = self.abs.bucket(s, hole, board);
+            }
+            seven[0] = hole[0];
+            seven[1] = hole[1];
+            d.rank[p] = eval7(&seven);
+        }
+        d
+    }
+}
