@@ -9,3 +9,12 @@ Ideas for future work
   everything else on asus-nvidia. It fits with 100 river groups instead of
   200: 18.2B entries, 68 GiB, about 80 hours of training. Left out for now to
   avoid that special case.
+
+- A min-bet size (10% of the pot, or the minimum bet) in two-player pots after
+  the flop. Without it, the bot reads a min-bet as its smallest bet size (a
+  third of the pot) and answers it like a real bet, folding hands that should
+  call a tiny bet (the heads-up bot folded 29% of the time to one-big-blind
+  bets). Beginners make these bets often. Adding it grows the 6-max trees by
+  about 27% (100bb: 20.9B entries, 78 GiB of 4-byte regrets, against 16.4B and
+  61 GiB) and training by about 40 hours. Left out for now; worth adding if
+  play shows min-bets are common.
