@@ -1,0 +1,11 @@
+Ideas for future work
+
+- A 150bb stack depth for the 6-max CFR bot. In simulated freeze-out matches
+  (heuristic bots, this app's rules), the bot's effective stack was over 100bb
+  at 40% of its decisions, and nearer 150bb than 100bb at 28%. Without a
+  150bb tree those hands are played with the 100bb strategy.
+  With the lean 6-max menu and 200 card groups per street, a 150bb tree has
+  28.5B entries (106 GiB of 4-byte regrets), which doesn't fit beside
+  everything else on asus-nvidia. It fits with 100 river groups instead of
+  200: 18.2B entries, 68 GiB, about 80 hours of training. Left out for now to
+  avoid that special case.
