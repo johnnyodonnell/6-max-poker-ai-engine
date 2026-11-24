@@ -18,3 +18,10 @@ Ideas for future work
   about 27% (100bb: 20.9B entries, 78 GiB of 4-byte regrets, against 16.4B and
   61 GiB) and training by about 40 hours. Left out for now; worth adding if
   play shows min-bets are common.
+
+- Deeper heads-up stack depths (150, 200 and 300bb). When the game gets down
+  to you and one bot, the effective stack is usually deeper than 100bb (median
+  180bb in simulated matches, over 100bb 79% of the time); without deeper
+  depths those endgames are played with the 100bb strategy. Heads-up trees are
+  small: with 200 card groups the three depths add 57M entries, about 25
+  minutes of training and 55 MiB of memory to play.
