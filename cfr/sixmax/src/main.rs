@@ -8,9 +8,11 @@
 //!   tree --players 6|2 --stack CHIPS [--menu v1] [--buckets 169,200,200,200]
 //!       the size of a betting tree
 //!   train / export   (see train.rs)
-//!   eval / probe     (see play.rs)
+//!   eval / probe / match   (see play.rs)
+//!   serve                  (see serve.rs)
 
 mod play;
+mod serve;
 mod train;
 mod util;
 
@@ -88,8 +90,10 @@ fn main() {
         Some("export") => train::export_cmd(&args),
         Some("eval") => play::eval_cmd(&args),
         Some("probe") => play::probe_cmd(&args),
+        Some("match") => play::match_cmd(&args),
+        Some("serve") => serve::serve_cmd(&args),
         other => {
-            eprintln!("unknown subcommand {other:?}; expected: abstraction | abscheck | tree | train | export | eval | probe");
+            eprintln!("unknown subcommand {other:?}; expected: abstraction | abscheck | tree | train | export | eval | probe | match | serve");
             std::process::exit(2);
         }
     }

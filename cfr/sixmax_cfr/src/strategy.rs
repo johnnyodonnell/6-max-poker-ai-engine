@@ -21,9 +21,26 @@ pub struct StrategyMeta {
     pub entries: u64,
 }
 
+/// A strategy's bytes: built in memory, or a read-only map of its file (the
+/// engine maps every depth, so it starts fast and shares the page cache).
+pub enum Probs {
+    Owned(Vec<u8>),
+    Mapped(memmap2::Mmap),
+}
+
+impl std::ops::Deref for Probs {
+    type Target = [u8];
+    fn deref(&self) -> &[u8] {
+        match self {
+            Probs::Owned(v) => v,
+            Probs::Mapped(m) => m,
+        }
+    }
+}
+
 pub struct Strategy {
     pub meta: StrategyMeta,
-    pub probs: Vec<u8>,
+    pub probs: Probs,
 }
 
 /// Probabilities as bytes summing to 255 (the remainder to the likeliest).
@@ -57,7 +74,7 @@ impl Strategy {
                 probs[base..base + n].copy_from_slice(&q[..n]);
             }
         }
-        Strategy { meta, probs }
+        Strategy { meta, probs: Probs::Owned(probs) }
     }
 
     /// The action probabilities at (node, group).
@@ -76,7 +93,7 @@ impl Strategy {
     pub fn save(&self, dir: &Path) -> std::io::Result<()> {
         std::fs::create_dir_all(dir)?;
         let tmp = dir.join("strategy.u8.tmp");
-        std::fs::write(&tmp, &self.probs)?;
+        std::fs::write(&tmp, &self.probs[..])?;
         std::fs::rename(&tmp, dir.join("strategy.u8"))?;
         std::fs::write(dir.join("meta.json"), serde_json::to_string_pretty(&self.meta).unwrap())
     }
@@ -88,6 +105,20 @@ impl Strategy {
         if probs.len() as u64 != meta.entries {
             return Err(std::io::Error::other("strategy.u8 doesn't match meta.json"));
         }
-        Ok(Strategy { meta, probs })
+        Ok(Strategy { meta, probs: Probs::Owned(probs) })
+    }
+
+    /// Like `load`, but maps the file instead of reading it.
+    pub fn open(dir: &Path) -> std::io::Result<Strategy> {
+        let meta: StrategyMeta = serde_json::from_str(&std::fs::read_to_string(dir.join("meta.json"))?)
+            .map_err(|e| std::io::Error::other(format!("meta.json: {e}")))?;
+        let f = std::fs::File::open(dir.join("strategy.u8"))?;
+        // SAFETY: strategy files are written once (to a temp name, then
+        // renamed) and never modified in place.
+        let m = unsafe { memmap2::Mmap::map(&f)? };
+        if m.len() as u64 != meta.entries {
+            return Err(std::io::Error::other("strategy.u8 doesn't match meta.json"));
+        }
+        Ok(Strategy { meta, probs: Probs::Mapped(m) })
     }
 }

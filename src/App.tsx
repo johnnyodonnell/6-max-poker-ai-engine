@@ -18,8 +18,10 @@ export default function App() {
     dealHand,
     performAction,
     newGame,
+    retry,
     gameOver,
     isProcessingBots,
+    engineError,
     decisions,
   } = useGameState();
   const [debug, setDebug] = useState(loadDebug);
@@ -46,6 +48,8 @@ export default function App() {
       debug={debug}
       onToggleDebug={toggleDebug}
       decisions={decisions}
+      engineError={engineError}
+      onRetry={retry}
     />
   );
 }

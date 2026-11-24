@@ -103,3 +103,38 @@
   font-weight: 600;
   color: #f2f3f5;
 }
+
+.debug-detail {
+  color: rgba(255, 255, 255, 0.6);
+  font-size: 13px;
+  margin: 2px 0;
+}
+
+.engine-error {
+  position: absolute;
+  left: 50%;
+  top: 22px;
+  z-index: 11;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  max-width: 900px;
+  padding: 10px 16px;
+  border-radius: 8px;
+  background: rgba(60, 12, 12, 0.92);
+  border: 1px solid #c0503f;
+  color: #ffd9d2;
+  font-size: 18px;
+}
+
+.engine-error button {
+  padding: 6px 14px;
+  border-radius: 6px;
+  border: 1px solid #c0503f;
+  background: #2a1414;
+  color: #ffd9d2;
+  font-family: inherit;
+  font-size: 16px;
+  cursor: pointer;
+}

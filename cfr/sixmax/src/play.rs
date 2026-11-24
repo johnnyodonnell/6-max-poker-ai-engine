@@ -122,3 +122,201 @@ pub fn probe_cmd(args: &[String]) {
         );
     }
 }
+
+// ---------------------------------------------------------------------------
+// `sixmax match`: the play-time engine under the real rules.
+//
+//   sixmax match --run RUN [--abs g200] [--vs random|station|maniac|engine]
+//                [--hands 20000] [--stacks 200|random]
+//       --vs BOT: the engine in one seat (every seat in turn) against five
+//       scripted bots; its result in bb/100. --vs engine: six engines. Both
+//       report how often the engine fell back to its equity heuristic and
+//       check that every action it chose was legal. With --stacks random,
+//       each hand deals every seat 6-150bb and 0-3 empty seats.
+
+use std::sync::atomic::{AtomicU64, Ordering::Relaxed};
+use std::sync::Mutex;
+
+use poker_core::rules::{Action, ActionType, Phase, State, Status, SEATS};
+use rand::rngs::SmallRng;
+use rand::{Rng, SeedableRng};
+use sixmax_cfr::engine::{Engine, HistAction, View};
+
+#[derive(Clone, Copy, PartialEq)]
+enum Seat {
+    Engine,
+    Random,
+    Station,
+    Maniac,
+}
+
+fn bot_action(kind: Seat, s: &State, rng: &mut SmallRng) -> Action {
+    let legal = s.legal().unwrap();
+    let passive = Action::new(if legal.can_check { ActionType::Check } else { ActionType::Call });
+    match kind {
+        Seat::Station => passive,
+        Seat::Maniac => {
+            if legal.can_raise {
+                let pot = s.pot + s.players.iter().map(|p| p.bet).sum::<i32>() + legal.to_call;
+                let to = (s.current_bet + pot).clamp(legal.min_raise_to, legal.max_raise_to);
+                if to >= legal.max_raise_to {
+                    Action::new(ActionType::AllIn)
+                } else {
+                    Action::to(if legal.opening { ActionType::Bet } else { ActionType::Raise }, to)
+                }
+            } else {
+                passive
+            }
+        }
+        _ => {
+            // As the app's random bot: a uniform legal action type, a uniform raise size.
+            let mut kinds = vec![];
+            if legal.can_fold {
+                kinds.push(ActionType::Fold);
+            }
+            kinds.push(if legal.can_check { ActionType::Check } else { ActionType::Call });
+            if legal.can_raise {
+                kinds.push(if legal.opening { ActionType::Bet } else { ActionType::Raise });
+                kinds.push(ActionType::AllIn);
+            }
+            match kinds[rng.gen_range(0..kinds.len())] {
+                k @ (ActionType::Bet | ActionType::Raise) => {
+                    let to = if legal.max_raise_to > legal.min_raise_to { rng.gen_range(legal.min_raise_to..legal.max_raise_to) } else { legal.min_raise_to };
+                    Action::to(k, to)
+                }
+                k => Action::new(k),
+            }
+        }
+    }
+}
+
+pub fn match_cmd(args: &[String]) {
+    let run = flag(args, "--run").expect("--run RUN");
+    let abs_dir = sixmax_home().join("data").join(flag(args, "--abs").unwrap_or("g200".into()));
+    let engine = Engine::load(&abs_dir, &sixmax_home().join("strategies").join(&run)).expect("load engine");
+    log(format!(
+        "engine {run}: 6-max depths {:?}bb, heads-up depths {:?}bb",
+        engine.six.iter().map(|d| d.strategy.meta.stack / 2).collect::<Vec<_>>(),
+        engine.hu.iter().map(|d| d.strategy.meta.stack / 2).collect::<Vec<_>>()
+    ));
+    let vs = flag(args, "--vs").unwrap_or("random".into());
+    let others = match vs.as_str() {
+        "random" => Seat::Random,
+        "station" => Seat::Station,
+        "maniac" => Seat::Maniac,
+        "engine" => Seat::Engine,
+        o => panic!("unknown opponent {o}"),
+    };
+    let hands: u64 = num(args, "--hands", 20_000u64);
+    let random_stacks = flag(args, "--stacks").as_deref() == Some("random");
+    let fixed: i32 = flag(args, "--stacks").and_then(|s| s.parse().ok()).unwrap_or(200);
+    let (decisions, fallbacks) = (AtomicU64::new(0), AtomicU64::new(0));
+    let results = Mutex::new(Vec::<f64>::new());
+    let reasons = Mutex::new(std::collections::BTreeMap::<String, u64>::new());
+    let nthreads = threads() as u64;
+    let t0 = std::time::Instant::now();
+    std::thread::scope(|sc| {
+        for th in 0..nthreads {
+            let (engine, decisions, fallbacks, results, reasons) = (&engine, &decisions, &fallbacks, &results, &reasons);
+            sc.spawn(move || {
+                let mut rng = SmallRng::seed_from_u64(0xBEEF ^ (th + 1).wrapping_mul(0x9E37_79B9_7F4A_7C15));
+                let mut mine = Vec::new();
+                let mut h = th;
+                while h < hands {
+                    let hero = (h % SEATS as u64) as usize;
+                    let mut stacks = [fixed; SEATS];
+                    if random_stacks {
+                        for st in stacks.iter_mut() {
+                            *st = rng.gen_range(12..=300);
+                        }
+                        for _ in 0..rng.gen_range(0..=3) {
+                            let k = rng.gen_range(0..SEATS);
+                            if k != hero {
+                                stacks[k] = 0;
+                            }
+                        }
+                    }
+                    let button = loop {
+                        let b = rng.gen_range(0..SEATS);
+                        if stacks[b] > 0 {
+                            break b;
+                        }
+                    };
+                    let mut s = State::new_table(stacks, None);
+                    s.button = ((button + SEATS - 1) % SEATS) as i32;
+                    let mut deck: Vec<u8> = (0..52).collect();
+                    for i in (1..52).rev() {
+                        deck.swap(i, rng.gen_range(0..=i));
+                    }
+                    s.start_hand(deck);
+                    let seed: u64 = rng.gen();
+                    while !s.hand_done() {
+                        if s.phase == Phase::StreetComplete {
+                            s.advance_street();
+                            continue;
+                        }
+                        let seat = s.to_act as usize;
+                        let kind = if seat == hero || others == Seat::Engine { Seat::Engine } else { others };
+                        let action = if kind == Seat::Engine {
+                            let v = View {
+                                bot: seat,
+                                button: s.button as usize,
+                                stacks,
+                                hole: [s.players[seat].hole[0], s.players[seat].hole[1]],
+                                board: s.community.clone(),
+                                actions: s.actions.iter().map(|a| HistAction { seat: a.seat, kind: a.kind, to: a.to }).collect(),
+                                seed,
+                            };
+                            let d = engine.decide(&v, &mut rng).unwrap_or_else(|e| panic!("engine error: {e}"));
+                            decisions.fetch_add(1, Relaxed);
+                            if let Some(why) = &d.debug.fallback {
+                                fallbacks.fetch_add(1, Relaxed);
+                                *reasons.lock().unwrap().entry(why.clone()).or_default() += 1;
+                            }
+                            // Every engine action must be legal as chosen.
+                            let legal = s.legal().unwrap();
+                            match d.action.kind {
+                                ActionType::Fold => assert!(legal.can_fold, "illegal fold"),
+                                ActionType::Check => assert!(legal.can_check, "illegal check"),
+                                ActionType::Call => assert!(legal.can_call, "illegal call"),
+                                ActionType::Bet | ActionType::Raise => {
+                                    let to = d.action.amount.unwrap();
+                                    assert!(legal.can_raise && to >= legal.min_raise_to && to <= legal.max_raise_to, "illegal raise to {to}");
+                                }
+                                ActionType::AllIn => {}
+                            }
+                            d.action
+                        } else {
+                            bot_action(kind, &s, &mut rng)
+                        };
+                        s.apply(action);
+                    }
+                    let start = stacks[hero];
+                    let end = s.players[hero].stack;
+                    mine.push((end - start) as f64 / 2.0);
+                    let _ = Status::Out;
+                    h += nthreads;
+                }
+                results.lock().unwrap().extend(mine);
+            });
+        }
+    });
+    let r = results.into_inner().unwrap();
+    let n = r.len() as f64;
+    let mean = r.iter().sum::<f64>() / n;
+    let var = r.iter().map(|x| (x - mean) * (x - mean)).sum::<f64>() / n;
+    let (d, f) = (decisions.into_inner(), fallbacks.into_inner());
+    log(format!(
+        "{} hands vs {vs} ({} stacks): engine {:+.1} ± {:.1} bb/100; {} engine decisions, all legal; fallback {:.2}% ({:.0}s)",
+        r.len(),
+        if random_stacks { "random".to_string() } else { format!("{}bb", fixed / 2) },
+        mean * 100.0,
+        1.96 * (var / n).sqrt() * 100.0,
+        d,
+        f as f64 / d.max(1) as f64 * 100.0,
+        t0.elapsed().as_secs_f64()
+    ));
+    for (why, k) in reasons.into_inner().unwrap() {
+        log(format!("  fallback: {why}: {k}"));
+    }
+}

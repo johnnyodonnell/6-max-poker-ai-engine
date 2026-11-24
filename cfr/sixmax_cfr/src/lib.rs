@@ -11,3 +11,4 @@ pub mod mccfr;
 pub mod strategy;
 pub mod toy;
 pub mod eval;
+pub mod engine;

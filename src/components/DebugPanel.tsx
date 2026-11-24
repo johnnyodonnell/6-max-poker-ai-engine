@@ -1,4 +1,4 @@
-import type { BotDecision } from "../engine/random";
+import type { BotDecision } from "../engine/remote";
 import "./DebugPanel.css";
 
 interface DebugPanelProps {
@@ -10,8 +10,8 @@ interface DebugPanelProps {
 const pct = (p: number) => `${Math.round(p * 100)}%`;
 
 // The debug view: a toggle, and (when on) the bots' decisions this hand —
-// who decided on which street, the legal options with the chance of each,
-// and what was picked. The bots' cards are shown face up on the
+// who decided on which street, the strategy used and the bot's hand group,
+// the options with the chance of each, and what was picked. The bots' cards are shown face up on the
 // table while it's on (see App).
 export default function DebugPanel({ enabled, onToggle, decisions }: DebugPanelProps) {
   return (
@@ -32,6 +32,11 @@ export default function DebugPanel({ enabled, onToggle, decisions }: DebugPanelP
                 <span className="debug-dim"> · </span>
                 <span className="debug-street">{d.street}</span>
               </div>
+              {d.details.map((line, j) => (
+                <div key={j} className="debug-detail">
+                  {line}
+                </div>
+              ))}
               <table className="debug-options">
                 <tbody>
                   {d.options.map((o, j) => (

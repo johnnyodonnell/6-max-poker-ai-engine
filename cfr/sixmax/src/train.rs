@@ -10,7 +10,8 @@
 //! The run's length: `--iters`, or else enough iterations for `--budget`
 //! regret updates per entry (the heads-up v1c level is about 6,000),
 //! counting the updates per traversal measured over the last part of a
-//! `--calibrate`-second warm-up (which is part of the run). `--minutes`
+//! `--calibrate`-second warm-up (which is part of the run; it stops at 1%
+//! of the run on small trees). `--minutes`
 //! stops (and exports) early, for quick checks.
 //!
 //!   sixmax export --run NAME --players 6|2 --stack CHIPS --abs ABS [--menu v1]
@@ -118,6 +119,13 @@ pub fn train_cmd(args: &[String]) {
                 if tc.elapsed().as_secs_f64() > 0.75 * calibrate {
                     last.0 += step;
                     last.1 += c.updates;
+                }
+                // Small trees: stop at 1% of the run, so the schedule
+                // (discounting over the first 20%) isn't eaten by the warm-up.
+                let upt = solver.counts.updates as f64 / (solver.iterations * st.players as u64) as f64;
+                let provisional = budget * t.n_entries as f64 / (st.players as f64 * upt);
+                if tc.elapsed().as_secs_f64() > 5.0 && solver.iterations as f64 > 0.01 * provisional {
+                    break;
                 }
             }
             if last.0 == 0 {

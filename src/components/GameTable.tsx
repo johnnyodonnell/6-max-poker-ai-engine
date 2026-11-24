@@ -9,7 +9,7 @@ import DealerButton from "./DealerButton";
 import ActionPanel from "./ActionPanel";
 import HandResult from "./HandResult";
 import DebugPanel from "./DebugPanel";
-import type { BotDecision } from "../engine/random";
+import type { BotDecision } from "../engine/remote";
 import { STAGE_WIDTH, STAGE_HEIGHT, BET_POS } from "./layout";
 import "./GameTable.css";
 
@@ -25,6 +25,9 @@ interface GameTableProps {
   debug?: boolean;
   onToggleDebug?: () => void;
   decisions?: BotDecision[];
+  // Set when a bot couldn't move (engine unreachable / error).
+  engineError?: string | null;
+  onRetry?: () => void;
 }
 
 // Window width kept clear on the left for the open debug panel (its width
@@ -57,6 +60,8 @@ export default function GameTable({
   debug = false,
   onToggleDebug,
   decisions = [],
+  engineError = null,
+  onRetry,
 }: GameTableProps) {
   const reserved = debug && onToggleDebug ? DEBUG_SIDEBAR : 0;
   const scale = useStageScale(reserved);
@@ -119,6 +124,13 @@ export default function GameTable({
             />
           )}
         </PokerTable>
+
+        {engineError && (
+          <div className="engine-error">
+            <span>The bots can't move: {engineError}</span>
+            {onRetry && <button onClick={onRetry}>Retry</button>}
+          </div>
+        )}
 
         <div className="action-dock">
           <ActionPanel
