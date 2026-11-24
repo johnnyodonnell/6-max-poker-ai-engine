@@ -4,8 +4,13 @@ A single-table, 6-handed **No-Limit Texas Hold'em** game in the browser
 (React 19 + TypeScript 7 + Vite 8) with a swappable AI engine. You take the
 bottom seat; the other five are bots.
 
-The bots play **randomly** (`engine/random.ts`): each picks uniformly among
-its legal action types, and for a bet or raise a uniform-random legal size.
+The bots play a **CFR strategy**: a precomputed counterfactual-regret-
+minimization blueprint for 6-max no-limit, trained and served by the
+`asus-nvidia` box (see [cfr/README.md](cfr/README.md)). The browser asks the
+engine for each bot move (`engine/remote.ts` → `POST /api/act`); there is no
+fallback, so if the engine can't be reached the table says so and offers a
+retry. The original random bot (`engine/random.ts`) stays in the code but
+isn't served.
 
 The engine module exposes a single `bestMove(state)` function, so the engine can
 be swapped without touching the UI. This is the same pattern as the sibling
@@ -27,8 +32,14 @@ without artificial delay.
   in the browser between hands; a hand in progress is dealt again.
 - **Debug view** (top-left toggle, remembered): every bot's hole cards face up,
   folded ones dimmed in place, and a sidebar with each bot decision this hand —
-  the legal actions with the chance of each, and the pick. The table
+  the strategy it used (table size, stack depth), its hand group, the options
+  with the chance of each, and the pick. The table
   shrinks to make room for it.
+
+## Playing
+
+The box serves the built app along with the engine:
+**http://192.168.0.185:8791**.
 
 ## Running locally
 
@@ -37,8 +48,10 @@ npm install
 npm run dev        # or: ./run-local.sh
 ```
 
-Then open the printed URL. `npm run build` type-checks and produces a production
-build in `dist/`. Desktop browsers only — the table is a fixed-size stage that
+Then open the printed URL. The dev server forwards `/api` to the engine on the
+box (`SIXMAX_ENGINE=http://host:port` to point elsewhere). `npm run build`
+type-checks and produces a production build in `dist/`; `cfr/deploy_web.sh`
+builds and copies it to the box. Desktop browsers only — the table is a fixed-size stage that
 scales to fit the window.
 
 ## Rules / setup
@@ -75,7 +88,8 @@ src/
     cards.ts            52-card deck, shuffle, card formatting
     evaluator.ts        best-5-of-7 hand ranking + comparison
     game.ts             pure NLHE rules — no React, no side effects
-    random.ts           the AI — bestMove(state): a uniform-random legal move
+    remote.ts           the AI — bestMove(state): the CFR engine on the box
+    random.ts           a uniform-random legal move (the original bot, unused)
     saved.ts            the match saved in localStorage between hands
     adapt.ts            maps engine state <-> the UI's GameState / BetAction
   components/
@@ -87,6 +101,7 @@ src/
     DebugPanel          the debug toggle and the bots' decisions
     Card, CommunityCards, PotDisplay, ChipStack, DealerButton,
     HandResult
+cfr/                    the engine: Rust, trained and served on the box
 ```
 
 ## The engine contract
@@ -95,8 +110,8 @@ src/
 in a different engine, change that one line:
 
 ```ts
-import { bestMove } from "../engine/random";   // current
-// import { bestMove } from "../engine/<other>";
+import { bestMove } from "../engine/remote";   // current: the CFR engine
+// import { bestMove } from "../engine/random";   // the random placeholder
 ```
 
 ```ts
@@ -104,8 +119,9 @@ await bestMove(state)   // state: EngineState (see engine/game.ts)
                         // -> an Action { type, amount? } for state.toAct
 ```
 
-The hook `await`s each move, so an async engine (e.g. one that runs a model or
-calls a server) works as well as the synchronous `random.ts`.
+The hook `await`s each move, so both synchronous engines (like `random.ts`) and
+async ones (like the remote engine) work; a rejected move stops the table with
+the error and a Retry button.
 
 Engine actions are `{ type: 'fold' | 'check' | 'call' | 'bet' | 'raise' | 'allin' }`,
 where `amount` (for bet/raise) is the *raise-to* total. `legalActions(state)`
