@@ -14,10 +14,12 @@ const ACTION_LABELS: Record<NonNullable<PlayerType["lastAction"]>, string> = {
 };
 
 // The tab above the plate: the last action this street, a FOLD that sticks for
-// the rest of the hand, ALL-IN, or the SB/BB badge until the blind acts.
+// the rest of the hand, MUCK for a beaten hand not shown at showdown, ALL-IN,
+// or the SB/BB badge until the blind acts.
 function seatLabel(player: PlayerType): { text: string; kind: string } | null {
   if (player.status === "eliminated") return { text: "Out", kind: "muted" };
   if (player.status === "folded") return { text: "Fold", kind: "muted" };
+  if (player.mucked) return { text: "Muck", kind: "muted" };
   if (player.lastAction) {
     const a = player.lastAction;
     const kind =
@@ -50,21 +52,26 @@ export default function PlayerSeat({
 }: PlayerSeatProps) {
   const folded = player.status === "folded";
   const out = player.status === "eliminated";
+  const mucked = player.mucked;
 
   // Reveal opponents' cards only at a real showdown. A hand won because everyone
-  // else folded is not a showdown, so the winner keeps their cards concealed.
-  const revealAll = showdown || phase === "showdown" ? !folded && !out : false;
+  // else folded is not a showdown, so the winner keeps their cards concealed,
+  // and a beaten hand that didn't have to be shown is mucked face down.
+  const revealAll = showdown || phase === "showdown" ? !folded && !out && !mucked : false;
   const showCards = faceUp ? !out : revealAll || player.isHuman;
   // Like CoinPoker, a folded hand leaves the table...
   const hasCards = player.holeCards.length > 0 && !folded && !out;
   // ...but you can still peek at your own folded cards by hovering the seat.
   const canPeek = player.holeCards.length > 0 && folded && showCards;
+  // In debug view the bots' folded cards stay up (dimmed), no hover needed.
+  const foldedClass = faceUp && !player.isHuman ? "folded-shown" : "folded-peek";
 
   const classNames = [
     "seat",
     player.isHuman ? "is-human" : "",
     out ? "eliminated" : "",
     folded ? "folded" : "",
+    mucked ? "mucked" : "",
     isWinner ? "is-winner" : "",
     isActing ? "is-acting" : "",
   ]
@@ -76,7 +83,7 @@ export default function PlayerSeat({
   return (
     <div className={classNames} style={at(SEAT_POS[position])}>
       {(hasCards || canPeek) && (
-        <div className={canPeek ? "seat-cards folded-peek" : "seat-cards"}>
+        <div className={canPeek ? `seat-cards ${foldedClass}` : "seat-cards"}>
           {player.holeCards.map((card, i) => (
             <Card
               key={i}

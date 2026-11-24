@@ -23,6 +23,8 @@ export interface Player {
   handDescription?: string;
   // Seat label: the player's last action this street, if any.
   lastAction: SeatAction | null;
+  // Lost at showdown without having to show, so the hand went into the muck.
+  mucked: boolean;
   // Blind posted this hand, shown as a badge until the player acts.
   blind: "SB" | "BB" | null;
 }

@@ -77,6 +77,17 @@
   opacity: 1;
 }
 
+/* Debug view: a bot's folded cards are always shown, dimmed the same way. */
+.seat-cards.folded-shown {
+  filter: grayscale(0.35) brightness(0.6);
+}
+
+/* A mucked hand stays in place, dimmed, under the MUCK tab: face down for a
+   bot (face up in debug view), face up for your own. */
+.seat.mucked .seat-cards {
+  filter: grayscale(0.35) brightness(0.6);
+}
+
 .seat.folded .seat-plate {
   opacity: 0.55;
 }

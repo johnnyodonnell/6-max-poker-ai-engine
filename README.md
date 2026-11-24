@@ -23,6 +23,18 @@ each bettor, a pot label above the board, and action buttons at the bottom
 right. Click **Deal** to start each hand; bots and street run-outs resolve
 without artificial delay.
 
+- **Bet sizing** with chips: a row of $1/$5/$25/$100 chips that add to the bet
+  over a row that take chips off. The bet starts at the minimum raise; the first
+  chip that reaches a limit stops the bet there (all-in, or back to the
+  minimum), and larger chips are dimmed. While the bots act, the controls stay
+  in place, greyed out.
+- **Stacks survive a refresh**: the match (stacks, button, hand count) is saved
+  in the browser between hands; a hand in progress is dealt again.
+- **Debug view** (top-left toggle, remembered): every bot's hole cards face up,
+  folded ones dimmed in place, and a sidebar with each bot decision this hand —
+  the legal actions with the net's probability of each, and the pick. The table
+  shrinks to make room for it.
+
 ## Running locally
 
 ```sh
@@ -40,6 +52,10 @@ scales to fit the window.
   everyone starts with **200** (100 bb).
 - **Play**: standard NLHE — pre-flop, flop, turn, river, showdown. Fold, check,
   call, bet, raise, all-in; min-raise and side-pot rules enforced.
+- **Showdown**: all-in hands are always shown. The others show in turn from the
+  river's last bettor or raiser (or the first seat left of the button if the
+  river was checked through); a hand beaten by one already shown is mucked
+  (MUCK tab, cards face down).
 - **Button** rotates each hand; blinds are posted by the next live seats (with
   the heads-up small-blind-on-the-button rule once the table shrinks).
 - **Freeze-out**: a bot at 0 chips sits out. The game ends when **you** bust or
@@ -70,18 +86,18 @@ src/
     encode.ts           the network's input encoding (Rust mirror in training/)
     actions.ts          the discrete action space and its raise-to amounts
     random.ts           the original random engine
+    saved.ts            the match saved in localStorage between hands
     adapt.ts            maps engine state <-> the UI's GameState / BetAction
   components/
     layout.ts           stage size and every seat/bet/dealer/pot position
     GameTable           scaled stage; composes everything below
     PokerTable          rail + felt
     PlayerSeat          plate, hole cards, action label
+    ActionPanel         chip bet sizing + action buttons
+    DebugPanel          the debug toggle and the bots' decisions
     Card, CommunityCards, PotDisplay, ChipStack, DealerButton,
-    HandResult, ActionPanel
+    HandResult
 ```
-
-`GameTable` accepts a `faceUp` prop (default `false`) that shows every bot's
-hole cards; nothing sets it yet.
 
 ## The engine contract
 

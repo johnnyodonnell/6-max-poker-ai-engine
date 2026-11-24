@@ -8,6 +8,8 @@ import ChipStack from "./ChipStack";
 import DealerButton from "./DealerButton";
 import ActionPanel from "./ActionPanel";
 import HandResult from "./HandResult";
+import DebugPanel from "./DebugPanel";
+import type { BotDecision } from "../engine/neural";
 import { STAGE_WIDTH, STAGE_HEIGHT, BET_POS } from "./layout";
 import "./GameTable.css";
 
@@ -19,18 +21,28 @@ interface GameTableProps {
   onNewGame: () => void;
   isProcessingBots?: boolean;
   faceUp?: boolean;
+  // Debug view: the toggle, and the bots' decisions this hand.
+  debug?: boolean;
+  onToggleDebug?: () => void;
+  decisions?: BotDecision[];
 }
 
-// Scale the fixed-size stage to fit the window, preserving its aspect ratio.
-function useStageScale(): number {
+// Window width kept clear on the left for the open debug panel (its width
+// plus margins; see DebugPanel.css), so it never covers the left-hand seats.
+const DEBUG_SIDEBAR = 410;
+
+// Scale the fixed-size stage to fit the window (less `reserved` pixels on the
+// left), preserving its aspect ratio.
+function useStageScale(reserved: number): number {
   const compute = () =>
-    Math.min(window.innerWidth / STAGE_WIDTH, window.innerHeight / STAGE_HEIGHT);
+    Math.min((window.innerWidth - reserved) / STAGE_WIDTH, window.innerHeight / STAGE_HEIGHT);
   const [scale, setScale] = useState(compute);
   useEffect(() => {
     const onResize = () => setScale(compute());
+    onResize();
     window.addEventListener("resize", onResize);
     return () => window.removeEventListener("resize", onResize);
-  }, []);
+  }, [reserved]);
   return scale;
 }
 
@@ -42,8 +54,12 @@ export default function GameTable({
   onNewGame,
   isProcessingBots = false,
   faceUp = false,
+  debug = false,
+  onToggleDebug,
+  decisions = [],
 }: GameTableProps) {
-  const scale = useStageScale();
+  const reserved = debug && onToggleDebug ? DEBUG_SIDEBAR : 0;
+  const scale = useStageScale(reserved);
   const winnerSeats = new Set(gameState.winners.map((w) => w.seat));
 
   const currentBetsTotal = gameState.players.reduce(
@@ -54,7 +70,11 @@ export default function GameTable({
   const handOver = gameState.phase === "hand_complete";
 
   return (
-    <div className="viewport">
+    <div className="viewport" style={{ paddingLeft: reserved }}>
+      {onToggleDebug && (
+        <DebugPanel enabled={debug} onToggle={onToggleDebug} decisions={decisions} />
+      )}
+
       <div
         className="stage"
         style={{

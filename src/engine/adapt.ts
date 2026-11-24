@@ -49,8 +49,9 @@ export function toGameState(s: EngineState): GameState {
 
   const players: Player[] = s.players.map((p: EnginePlayer) => {
     const inHand = p.status === "active" || p.status === "allin";
+    const mucked = showdown && (s.results?.mucked ?? []).includes(p.id);
     const handDescription =
-      showdown && inHand
+      showdown && inHand && !mucked
         ? categoryName(evaluate7([...p.holeCards, ...s.community]))
         : undefined;
     return {
@@ -65,6 +66,7 @@ export function toGameState(s: EngineState): GameState {
       isDealer: s.button === p.id,
       handDescription,
       lastAction: p.lastAction,
+      mucked,
       blind:
         s.handNumber > 0 && s.street === "preflop" && s.phase === "betting"
           ? p.id === s.bbSeat

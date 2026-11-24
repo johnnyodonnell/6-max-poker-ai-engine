@@ -7,7 +7,9 @@ import {
   advanceStreet,
 } from "../engine/game";
 import type { EngineState } from "../engine/game";
-import { bestMove, preload } from "../engine/neural";
+import { loadTable, saveTable } from "../engine/saved";
+import { bestMove, onDecision, preload } from "../engine/neural";
+import type { BotDecision } from "../engine/neural";
 import { toGameState, fromBetAction } from "../engine/adapt";
 
 // Run the engine forward until a human decision is required or the hand/match
@@ -40,9 +42,11 @@ export function useGameState(): {
   newGame: () => void;
   gameOver: boolean;
   isProcessingBots: boolean;
+  decisions: BotDecision[];
 } {
-  const [engine, setEngine] = useState<EngineState>(() => createTable());
+  const [engine, setEngine] = useState<EngineState>(loadTable);
   const [busy, setBusy] = useState(false);
+  const [decisions, setDecisions] = useState<BotDecision[]>([]);
   const engineRef = useRef(engine);
   // Bumped by every new run (and New Game): a bot run that finishes after
   // it has been superseded is discarded.
@@ -52,9 +56,19 @@ export function useGameState(): {
     preload().catch((err) => console.error("PokerNet: model failed to load", err));
   }, []);
 
+  // The bots' decisions this hand, for the debug view.
+  useEffect(
+    () =>
+      onDecision((d) =>
+        setDecisions((prev) => (prev.length && prev[0].hand !== d.hand ? [d] : [...prev, d])),
+      ),
+    [],
+  );
+
   const set = useCallback((s: EngineState) => {
     engineRef.current = s;
     setEngine(s);
+    saveTable(s);
   }, []);
 
   // Show `start`, then let the bots play until the human is up again.
@@ -74,6 +88,7 @@ export function useGameState(): {
   const dealHand = useCallback(() => {
     const s = engineRef.current;
     if (busy || (s.phase !== "waiting" && s.phase !== "hand-over")) return;
+    setDecisions([]);
     void run(startHand(s));
   }, [busy, run]);
 
@@ -90,6 +105,7 @@ export function useGameState(): {
     generation.current++;
     set(createTable());
     setBusy(false);
+    setDecisions([]);
   }, [set]);
 
   return {
@@ -99,5 +115,6 @@ export function useGameState(): {
     newGame,
     gameOver: engine.phase === "match-over",
     isProcessingBots: busy,
+    decisions,
   };
 }
