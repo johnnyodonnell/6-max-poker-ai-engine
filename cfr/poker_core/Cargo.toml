@@ -1,0 +1,13 @@
+[package]
+name = "poker_core"
+version = "0.1.0"
+edition = "2021"
+description = "Pure 6-max NLHE rules (port of src/engine/game.ts), hand evaluator"
+
+[dependencies]
+rand = { workspace = true }
+rand_distr = { workspace = true }
+
+[dev-dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }
