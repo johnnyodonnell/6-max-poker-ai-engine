@@ -8,13 +8,14 @@ import {
 } from "../engine/game";
 import type { EngineState } from "../engine/game";
 import { loadTable, saveTable } from "../engine/saved";
-import { bestMove, onDecision, preload } from "../engine/neural";
-import type { BotDecision } from "../engine/neural";
+// The bots' engine. Swap this one import to plug in a different engine.
+import { bestMove, onDecision } from "../engine/random";
+import type { BotDecision } from "../engine/random";
 import { toGameState, fromBetAction } from "../engine/adapt";
 
 // Run the engine forward until a human decision is required or the hand/match
-// ends. The bots' moves are async (one ONNX forward each, a few ms), but there
-// is no artificial pacing: the table updates once, when the run-out is done.
+// ends. Bots' moves are awaited, so an async engine can drop in, but there is
+// no artificial pacing: the table updates once, when the run-out is done.
 // Bounded by a generous step cap purely as a runaway-loop backstop.
 async function advance(state: EngineState): Promise<EngineState> {
   let s = state;
@@ -51,10 +52,6 @@ export function useGameState(): {
   // Bumped by every new run (and New Game): a bot run that finishes after
   // it has been superseded is discarded.
   const generation = useRef(0);
-
-  useEffect(() => {
-    preload().catch((err) => console.error("PokerNet: model failed to load", err));
-  }, []);
 
   // The bots' decisions this hand, for the debug view.
   useEffect(

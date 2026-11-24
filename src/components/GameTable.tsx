@@ -9,7 +9,7 @@ import DealerButton from "./DealerButton";
 import ActionPanel from "./ActionPanel";
 import HandResult from "./HandResult";
 import DebugPanel from "./DebugPanel";
-import type { BotDecision } from "../engine/neural";
+import type { BotDecision } from "../engine/random";
 import { STAGE_WIDTH, STAGE_HEIGHT, BET_POS } from "./layout";
 import "./GameTable.css";
 

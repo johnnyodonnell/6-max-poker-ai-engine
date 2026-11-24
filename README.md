@@ -4,17 +4,12 @@ A single-table, 6-handed **No-Limit Texas Hold'em** game in the browser
 (React 19 + TypeScript 7 + Vite 8) with a swappable AI engine. You take the
 bottom seat; the other five are bots.
 
-The bots are a **neural network** trained by search-free self-play
-(PPO with a training-only critic). On its turn a bot runs one forward pass of
-`public/models/current.onnx` in the browser (onnxruntime-web, WebGPU with a
-WASM fallback). It then *samples* its move from the policy over ten discrete
-actions: fold, check/call, min-raise, six bet sizes (33–250% of the pot) and
-all-in. Training lives in `training/` (all Rust; see `training/README.md`).
+The bots play **randomly** (`engine/random.ts`): each picks uniformly among
+its legal action types, and for a bet or raise a uniform-random legal size.
 
 The engine module exposes a single `bestMove(state)` function, so the engine can
 be swapped without touching the UI. This is the same pattern as the sibling
-`chess-ai-engine`, `fox-lite-ai-engine` and `8-max-poker-ai-engine`. The
-original random engine is still in `engine/random.ts`.
+`chess-ai-engine`, `fox-lite-ai-engine` and `8-max-poker-ai-engine`.
 
 The rules engine is ported from `8-max-poker-ai-engine`. The table UI is
 modelled on the CoinPoker 6-max client: a dark room, an oval green felt, name
@@ -32,7 +27,7 @@ without artificial delay.
   in the browser between hands; a hand in progress is dealt again.
 - **Debug view** (top-left toggle, remembered): every bot's hole cards face up,
   folded ones dimmed in place, and a sidebar with each bot decision this hand —
-  the legal actions with the net's probability of each, and the pick. The table
+  the legal actions with the chance of each, and the pick. The table
   shrinks to make room for it.
 
 ## Running locally
@@ -80,12 +75,7 @@ src/
     cards.ts            52-card deck, shuffle, card formatting
     evaluator.ts        best-5-of-7 hand ranking + comparison
     game.ts             pure NLHE rules — no React, no side effects
-    neural.ts           the AI — async bestMove(state): encode, run the net,
-                        sample a move
-    net.ts              onnxruntime-web session for public/models/current.onnx
-    encode.ts           the network's input encoding (Rust mirror in training/)
-    actions.ts          the discrete action space and its raise-to amounts
-    random.ts           the original random engine
+    random.ts           the AI — bestMove(state): a uniform-random legal move
     saved.ts            the match saved in localStorage between hands
     adapt.ts            maps engine state <-> the UI's GameState / BetAction
   components/
@@ -105,7 +95,7 @@ src/
 in a different engine, change that one line:
 
 ```ts
-import { bestMove } from "../engine/neural";   // current
+import { bestMove } from "../engine/random";   // current
 // import { bestMove } from "../engine/<other>";
 ```
 
@@ -114,8 +104,8 @@ await bestMove(state)   // state: EngineState (see engine/game.ts)
                         // -> an Action { type, amount? } for state.toAct
 ```
 
-The hook `await`s each move, so a synchronous engine (like `random.ts`) works
-too.
+The hook `await`s each move, so an async engine (e.g. one that runs a model or
+calls a server) works as well as the synchronous `random.ts`.
 
 Engine actions are `{ type: 'fold' | 'check' | 'call' | 'bet' | 'raise' | 'allin' }`,
 where `amount` (for bet/raise) is the *raise-to* total. `legalActions(state)`

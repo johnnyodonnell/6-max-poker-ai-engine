@@ -84,7 +84,7 @@ export interface Action {
 }
 
 // One betting action in the current hand, in order (blind posts excluded).
-// Structured so an AI encoder can read the hand's betting history.
+// Also decides who shows first at showdown (see showdownMucks).
 export interface HandAction {
   seat: number;
   street: Street;
