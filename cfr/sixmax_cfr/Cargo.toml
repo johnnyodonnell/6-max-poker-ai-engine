@@ -1,0 +1,12 @@
+[package]
+name = "sixmax_cfr"
+version = "0.1.0"
+edition = "2021"
+description = "Card groups, abstract betting trees and external-sampling MCCFR for 6-max NLHE"
+
+[dependencies]
+poker_core = { path = "../poker_core" }
+rand = { workspace = true }
+rayon = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }

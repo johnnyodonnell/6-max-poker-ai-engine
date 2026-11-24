@@ -1,0 +1,17 @@
+[package]
+name = "sixmax"
+version = "0.1.0"
+edition = "2021"
+description = "The 6-max CFR engine's command line: card groups, trees, training, evaluation, serving"
+
+[[bin]]
+name = "sixmax"
+path = "src/main.rs"
+
+[dependencies]
+poker_core = { path = "../poker_core" }
+sixmax_cfr = { path = "../sixmax_cfr" }
+rand = { workspace = true }
+rayon = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }

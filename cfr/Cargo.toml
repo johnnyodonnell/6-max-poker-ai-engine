@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["poker_core"]
+members = ["poker_core", "sixmax_cfr", "sixmax"]
 
 [workspace.dependencies]
 rand = { version = "0.8", features = ["small_rng"] }

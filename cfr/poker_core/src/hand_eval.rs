@@ -153,9 +153,9 @@ pub fn eval7(cards: &[Card]) -> u32 {
         let t = trip_ranks[0];
         let rest = any_mask & !(1 << (t - 2));
         let k = top_ranks(rest, 2, &mut kick);
-        let mut v = vec![t];
-        v.extend_from_slice(&kick[..k]);
-        return pack(TRIPS, &v);
+        let mut v = [t, 0, 0];
+        v[1..1 + k].copy_from_slice(&kick[..k]);
+        return pack(TRIPS, &v[..1 + k]);
     }
     if n_pairs >= 2 {
         let (hi, lo) = (pair_ranks[0], pair_ranks[1]);
@@ -167,9 +167,9 @@ pub fn eval7(cards: &[Card]) -> u32 {
         let p = pair_ranks[0];
         let rest = any_mask & !(1 << (p - 2));
         let k = top_ranks(rest, 3, &mut kick);
-        let mut v = vec![p];
-        v.extend_from_slice(&kick[..k]);
-        return pack(PAIR, &v);
+        let mut v = [p, 0, 0, 0];
+        v[1..1 + k].copy_from_slice(&kick[..k]);
+        return pack(PAIR, &v[..1 + k]);
     }
     let k = top_ranks(any_mask, 5, &mut kick);
     pack(HIGH_CARD, &kick[..k])
