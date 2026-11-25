@@ -7,7 +7,7 @@
 //!       every (hand, board) has a card group; group sizes
 //!   tree --players 6|2 --stack CHIPS [--menu v1] [--buckets 169,200,200,200]
 //!       the size of a betting tree
-//!   train / export   (see train.rs)
+//!   train / export / retarget   (see train.rs)
 //!   eval / probe / match   (see play.rs)
 //!   serve                  (see serve.rs)
 
@@ -88,12 +88,13 @@ fn main() {
         Some("abscheck") => abscheck_cmd(&args),
         Some("train") => train::train_cmd(&args),
         Some("export") => train::export_cmd(&args),
+        Some("retarget") => train::retarget_cmd(&args),
         Some("eval") => play::eval_cmd(&args),
         Some("probe") => play::probe_cmd(&args),
         Some("match") => play::match_cmd(&args),
         Some("serve") => serve::serve_cmd(&args),
         other => {
-            eprintln!("unknown subcommand {other:?}; expected: abstraction | abscheck | tree | train | export | eval | probe | match | serve");
+            eprintln!("unknown subcommand {other:?}; expected: abstraction | abscheck | tree | train | export | retarget | eval | probe | match | serve");
             std::process::exit(2);
         }
     }

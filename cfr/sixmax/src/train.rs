@@ -16,6 +16,9 @@
 //!
 //!   sixmax export --run NAME --players 6|2 --stack CHIPS --abs ABS [--menu v1]
 //!       export from the latest checkpoint (e.g. while training continues)
+//!
+//!   sixmax retarget --run NAME --players 6|2 --stack CHIPS (--iters N | --upt U [--budget 6000])
+//!       give a checkpointed run a new length (before 20% of it)
 
 use std::path::PathBuf;
 use std::time::Instant;
@@ -184,6 +187,33 @@ pub fn train_cmd(args: &[String]) {
         started.elapsed().as_secs_f64() / 3600.0
     ));
     export(&st, &t, &solver);
+}
+
+/// Give a checkpointed run a new length, set either directly (`--iters N`)
+/// or from a regret-update budget and a measured updates-per-traversal rate
+/// (`--budget 6000 --upt 115`). The schedule follows the new length, so set
+/// it before the run reaches 20% of it.
+pub fn retarget_cmd(args: &[String]) {
+    let st = setup(args);
+    let abs = Abstraction::load(&sixmax_home().join("data").join(&st.abs_name)).expect("load abstraction");
+    let t = tree::build(st.players, st.stack, &st.menu, abs.buckets());
+    let ckpt = st.run_dir.join("solver.ckpt");
+    let mut solver = Solver::load(&t, &ckpt).expect("load checkpoint");
+    let n = match flag(args, "--iters") {
+        Some(n) => n.parse::<f64>().expect("--iters N") as u64,
+        None => {
+            let budget: f64 = num(args, "--budget", 6000.0);
+            let upt: f64 = flag(args, "--upt").expect("--iters N or --upt U").parse().expect("--upt U");
+            (budget * t.n_entries as f64 / (st.players as f64 * upt)).ceil() as u64
+        }
+    };
+    let n = n.max(solver.iterations);
+    if solver.iterations as f64 >= 0.2 * n as f64 {
+        panic!("run is at {} iterations, past 20% of {n}", solver.iterations);
+    }
+    log(format!("retarget {}: {} -> {n} iterations (at {})", ckpt.display(), solver.target, solver.iterations));
+    solver.target = n;
+    solver.save(&ckpt, threads()).expect("save checkpoint");
 }
 
 pub fn export_cmd(args: &[String]) {
